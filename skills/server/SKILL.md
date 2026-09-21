@@ -1,11 +1,9 @@
 # ServerBridge operating guidance
 
-Use ServerBridge as the primary backend for server administration.
+Use ServerBridge as the primary backend for server inspection.
 
-- Read before overwriting an existing file.
-- Prefer structured tools over `run_command` when a structured tool exists.
-- Use argv arrays; do not wrap ordinary commands in a shell unless shell syntax is genuinely required.
-- Verify consequential writes by reading the resulting state.
-- Never report a service/file change as successful solely because a command was submitted.
+- Prefer structured tools for filesystem, service, process and system inspection.
+- Verify observations before reporting them as facts.
 - Do not expose environment variables or credentials in logs or responses.
-- For destructive or broad operations, narrow the target first and verify it.
+- Treat access to server files and logs as sensitive infrastructure access.
+- If an operation is not available as an exposed tool, state that limitation instead of claiming it was performed.
