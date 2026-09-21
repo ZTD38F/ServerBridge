@@ -1,88 +1,79 @@
 # ServerBridge
 
-**ServerBridge** turns a Linux VPS into a private MCP backend for ChatGPT through the official OpenAI Secure MCP Tunnel.
+Connect a private Linux VPS to ChatGPT through **OpenAI Secure MCP Tunnel** — without opening an inbound MCP port.
 
-The installer is designed for predictable server setup: it performs preflight checks, asks for the visible `tunnel_id`, accepts the runtime API key with hidden input, installs a verified OpenAI `tunnel-client`, creates an isolated Python environment, configures autostart, runs `doctor`, starts the bridge, and verifies the service.
+> ServerBridge's public core is read-only/diagnostic. Treat server access as sensitive infrastructure access.
 
-> [!WARNING]
-> ServerBridge is intended for privileged server inspection. Treat access to the connected bridge as sensitive infrastructure access.
+## Install
 
-## Quick start
+You need only:
 
-1. Create or inspect a tunnel: https://platform.openai.com/settings/organization/tunnels
-2. Create a runtime API key: https://platform.openai.com/settings/organization/api-keys
-3. Install:
+1. A **Tunnel ID**: https://platform.openai.com/settings/organization/tunnels
+2. A **Runtime API key**: https://platform.openai.com/settings/organization/api-keys
+3. This command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/install.sh | sudo bash
 ```
 
-The installer asks for:
+The installer asks:
 
 ```text
-Tunnel ID (visible): tunnel_...
-Runtime API key (hidden):
+Tunnel ID: tunnel_...
+Runtime API key: ********
 ```
 
-Then open https://chatgpt.com/#settings/Connectors and scan/refresh the tunnel-backed MCP tools.
+When it says **ServerBridge is ready**, open:
 
-## Reliability goals
+https://chatgpt.com/#settings/Connectors
 
-- Linux `amd64` and `arm64`.
-- apt, dnf, yum, apk, pacman and zypper detection.
-- systemd and OpenRC integration.
-- stdio MCP: no local MCP TCP port or reverse proxy.
-- latest stable official `openai/tunnel-client`.
-- SHA-256 verification against official release checksums.
-- isolated releases and rollback on failed activation.
-- root-only runtime configuration.
-- MCP child does not inherit OpenAI control-plane secrets.
-- `tunnel-client doctor --explain` before success.
-- no inbound VPS port required.
+Choose your tunnel and scan the MCP tools.
 
-## Safe preview
+## Useful commands
 
 ```bash
-git clone https://github.com/ZTD38F/ServerBridge.git
-cd ServerBridge
-sudo SERVERBRIDGE_TUNNEL_ID=tunnel_example CONTROL_PLANE_API_KEY=dry-run ./install.sh --dry-run
-```
-
-## Management
-
-```bash
-sudo serverbridgectl status
-sudo serverbridgectl doctor
+sudo serverbridgectl check
 sudo serverbridgectl logs
 sudo serverbridgectl restart
-sudo serverbridgectl stop
 ```
 
-## Update
+Update:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/update.sh | sudo bash
 ```
 
-## Uninstall
+Uninstall:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/uninstall.sh | sudo bash
 ```
 
-The uninstaller deliberately preserves `/etc/serverbridge` and never deletes the remote OpenAI tunnel.
+## Built-in tools
 
-## Built-in MCP tools
+`server_info` · `list_files` · `read_text` · `service_status` · `service_logs` · `process_list`
 
-The public base MCP is intentionally read-only/diagnostic:
+<details>
+<summary><strong>What the installer handles automatically</strong></summary>
 
-`server_info`, `list_files`, `read_text`, `service_status`, `service_logs`, `process_list`.
+- Linux `amd64` / `arm64`
+- apt, dnf, yum, apk, pacman, zypper
+- systemd / OpenRC
+- Python 3.10+
+- latest stable official `openai/tunnel-client`
+- SHA-256 verification
+- stdio MCP with no fixed MCP port
+- outbound proxy environment preservation
+- isolated releases
+- rollback after failed activation
+- root-only credentials
+- MCP secret-environment isolation
+- `tunnel-client doctor`
+- service health verification
 
-See the files in `docs/` for installation, architecture, security and troubleshooting details.
+</details>
 
-## Google and other integrations
-
-ServerBridge is the transport/backend foundation. Google OAuth credentials cannot be inferred from an OpenAI tunnel ID, so the base installer never asks for Google passwords or invents account tokens.
+For details: [Installation](docs/INSTALL.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
 
 ## License
 
