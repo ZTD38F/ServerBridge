@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=75,<82"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "serverbridge-mcp"
+version = "0.1.0"
+description = "Stable VPS-to-ChatGPT administration bridge for OpenAI Secure MCP Tunnel"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "ServerBridge contributors"}]
+dependencies = ["mcp==2.2.0"]
+
+[tool.setuptools.packages.find]
+include = ["serverbridge*"]
