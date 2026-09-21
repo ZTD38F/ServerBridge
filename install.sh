@@ -318,8 +318,12 @@ install_dependencies() {
 
   case "$PKG" in
     apt)
-      run_checked env DEBIAN_FRONTEND=noninteractive apt-get update -qq
-      run_checked env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends         ca-certificates curl unzip tar gzip coreutils procps grep findutils python3 python3-venv python3-pip
+      run_checked env DEBIAN_FRONTEND=noninteractive apt-get \
+        -o DPkg::Lock::Timeout=180 -o Acquire::Retries=4 update -qq
+      run_checked env DEBIAN_FRONTEND=noninteractive apt-get \
+        -o DPkg::Lock::Timeout=180 -o Acquire::Retries=4 \
+        install -y --no-install-recommends \
+        ca-certificates curl unzip tar gzip coreutils procps grep findutils python3 python3-venv python3-pip
       ;;
     dnf) run_checked dnf install -y ca-certificates curl unzip tar gzip coreutils procps-ng grep findutils python3 python3-pip ;;
     yum) run_checked yum install -y ca-certificates curl unzip tar gzip coreutils procps-ng grep findutils python3 python3-pip ;;
