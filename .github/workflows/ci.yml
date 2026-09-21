@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    name: Shell checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bash syntax
+        run: |
+          bash -n install.sh
+          bash -n update.sh
+          bash -n uninstall.sh
+      - name: Help path
+        run: bash install.sh --help >/dev/null
+      - name: Obvious secret scan
+        run: |
+          if grep -RInE --exclude-dir=.git             '(sk-proj-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY)' .; then
+            echo "Potential secret detected." >&2
+            exit 1
+          fi
+
+  python:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Install
+        run: python -m pip install .
+      - name: Compile
+        run: python -m compileall -q serverbridge
+      - name: Import smoke test
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import serverbridge
+          from serverbridge.server import mcp
+          assert serverbridge.__version__
+          assert mcp is not None
+          json.loads(Path("plugin.json").read_text())
+          print("ServerBridge smoke test passed")
+          PY
