@@ -1,25 +1,42 @@
 # Security
 
-ServerBridge is an administration bridge, not a sandbox.
-
-## Trust model
-
-Treat access to the connected MCP app like privileged server access. Keep the tunnel private to the intended account/workspace.
+ServerBridge is an infrastructure inspection bridge, not a sandbox.
 
 ## Runtime secrets
 
 - Runtime API key input is hidden.
 - There is no `--api-key` installer argument.
-- Protected config is root-readable only.
-- The MCP child launcher unsets OpenAI control-plane secrets before starting Python.
-- Built-in process inspection does not expose process environments.
+- Runtime configuration is root-readable only.
+- The MCP child explicitly drops OpenAI control-plane credentials.
+- Process inspection never returns process environment variables.
+- Proxy and CA settings are persisted separately in a root-only file.
 
-If a secret is ever printed into a chat, log, shell history, or screenshot, rotate it.
+If a secret appears in a chat, terminal log, screenshot, or shell history, rotate it.
 
 ## Network
 
-OpenAI Secure MCP Tunnel uses outbound HTTPS. ServerBridge itself does not require a public inbound MCP port.
+OpenAI Secure MCP Tunnel uses outbound HTTPS. ServerBridge does not expose a public inbound MCP port.
 
-## File scope
+The installer can preserve common outbound proxy/private-CA environment variables so the service behaves the same after reboot.
 
-The MCP core uses `SERVERBRIDGE_ALLOWED_ROOTS`. The default is `/` for a universal server inspector. Restrict it in `/etc/serverbridge/serverbridge.env` when broad filesystem visibility is not required.
+## File visibility
+
+The public MCP core is read-only/diagnostic. `SERVERBRIDGE_ALLOWED_ROOTS` controls which filesystem roots can be inspected.
+
+Default:
+
+```text
+/
+```
+
+For a narrower deployment, edit:
+
+```text
+/etc/serverbridge/serverbridge.env
+```
+
+then restart:
+
+```bash
+sudo serverbridgectl restart
+```
