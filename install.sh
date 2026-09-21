@@ -120,6 +120,7 @@ cleanup() {
     restore_optional "$CONFIG_DIR/runtime.env" runtime.env
     restore_optional "$CONFIG_DIR/serverbridge.env" serverbridge.env
     restore_optional "$CONFIG_DIR/network.env" network.env
+    restore_optional "$CONFIG_DIR/network.sh" network.sh
     restore_optional "$PROFILE_DIR/$PROFILE_NAME.yaml" profile.yaml
     restore_optional "$BIN_DIR/tunnel-client" tunnel-client
     restore_optional "$BIN_DIR/launch-mcp" launch-mcp
@@ -438,29 +439,41 @@ download_tunnel_client() {
   printf '%s' "$binary"
 }
 
-escape_env_value() {
+escape_systemd_env_value() {
   local value="$1"
-  [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] ||
-    die "A preserved network environment value contains a newline."
   value="${value//\\/\\\\}"
   value="${value//\"/\\\"}"
   printf '%s' "$value"
 }
 
 write_network_env() {
-  local name value
+  local name value shell_value
   : > "$CONFIG_DIR/network.env.new"
+  : > "$CONFIG_DIR/network.sh.new"
 
-  for name in     HTTP_PROXY HTTPS_PROXY NO_PROXY     http_proxy https_proxy no_proxy     CA_BUNDLE ENTERPRISE_CA_BUNDLE     TUNNEL_CLIENT_HTTP_PROXY CONTROL_PLANE_HTTP_PROXY
+  for name in \
+    HTTP_PROXY HTTPS_PROXY NO_PROXY \
+    http_proxy https_proxy no_proxy \
+    CA_BUNDLE ENTERPRISE_CA_BUNDLE \
+    TUNNEL_CLIENT_HTTP_PROXY CONTROL_PLANE_HTTP_PROXY
   do
     value="${!name:-}"
-    if [[ -n "$value" ]]; then
-      printf '%s="%s"\n' "$name" "$(escape_env_value "$value")" >> "$CONFIG_DIR/network.env.new"
+    [[ -n "$value" ]] || continue
+
+    if [[ "$value" =~ [[:cntrl:]] ]]; then
+      die "A preserved network environment value contains a control character."
     fi
+
+    printf '%s="%s"\n' "$name" "$(escape_systemd_env_value "$value")" \
+      >> "$CONFIG_DIR/network.env.new"
+
+    shell_value="$("$PYTHON_BIN" -c 'import shlex,sys; print(shlex.quote(sys.argv[1]))' "$value")"
+    printf 'export %s=%s\n' "$name" "$shell_value" >> "$CONFIG_DIR/network.sh.new"
   done
 
-  chmod 600 "$CONFIG_DIR/network.env.new"
+  chmod 600 "$CONFIG_DIR/network.env.new" "$CONFIG_DIR/network.sh.new"
   mv -f "$CONFIG_DIR/network.env.new" "$CONFIG_DIR/network.env"
+  mv -f "$CONFIG_DIR/network.sh.new" "$CONFIG_DIR/network.sh"
 }
 
 validate_tunnel_client_binary() {
@@ -502,6 +515,8 @@ EOF
   cat > "$CONFIG_DIR/serverbridge.env.new" <<EOF
 SERVERBRIDGE_ALLOWED_ROOTS=/
 SERVERBRIDGE_MAX_CAPTURE_BYTES=65536
+SERVERBRIDGE_MAX_HASH_BYTES=67108864
+SERVERBRIDGE_PROTECTED_PATHS=$CONFIG_DIR/runtime.env:$CONFIG_DIR/network.env:$CONFIG_DIR/network.sh:$PROFILE_DIR
 EOF
   chmod 600 "$CONFIG_DIR/serverbridge.env.new"
   mv -f "$CONFIG_DIR/serverbridge.env.new" "$CONFIG_DIR/serverbridge.env"
@@ -536,7 +551,7 @@ load_env() {
   set -a
   . "\$CONFIG_DIR/runtime.env"
   . "\$CONFIG_DIR/serverbridge.env"
-  [[ ! -r "\$CONFIG_DIR/network.env" ]] || . "\$CONFIG_DIR/network.env"
+  [[ ! -r "\$CONFIG_DIR/network.sh" ]] || . "\$CONFIG_DIR/network.sh"
   set +a
 }
 
@@ -654,7 +669,7 @@ start_pre() {
   set -a
   . "$CONFIG_DIR/runtime.env"
   . "$CONFIG_DIR/serverbridge.env"
-  [ ! -r "$CONFIG_DIR/network.env" ] || . "$CONFIG_DIR/network.env"
+  [ ! -r "$CONFIG_DIR/network.sh" ] || . "$CONFIG_DIR/network.sh"
   set +a
 }
 
@@ -753,6 +768,7 @@ else
   backup_optional "$CONFIG_DIR/runtime.env" runtime.env
   backup_optional "$CONFIG_DIR/serverbridge.env" serverbridge.env
   backup_optional "$CONFIG_DIR/network.env" network.env
+  backup_optional "$CONFIG_DIR/network.sh" network.sh
   backup_optional "$PROFILE_DIR/$PROFILE_NAME.yaml" profile.yaml
   backup_optional "$BIN_DIR/tunnel-client" tunnel-client
   backup_optional "$BIN_DIR/launch-mcp" launch-mcp
@@ -794,9 +810,9 @@ else
   . "$CONFIG_DIR/runtime.env"
   # shellcheck disable=SC1091
   . "$CONFIG_DIR/serverbridge.env"
-  if [[ -r "$CONFIG_DIR/network.env" ]]; then
+  if [[ -r "$CONFIG_DIR/network.sh" ]]; then
     # shellcheck disable=SC1091
-    . "$CONFIG_DIR/network.env"
+    . "$CONFIG_DIR/network.sh"
   fi
   set +a
 
