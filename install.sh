@@ -1,0 +1,729 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+
+REPO="ZTD38F/ServerBridge"
+BRANCH="main"
+
+INSTALL_ROOT="${SERVERBRIDGE_INSTALL_ROOT:-/opt/serverbridge}"
+CONFIG_DIR="${SERVERBRIDGE_CONFIG_DIR:-/etc/serverbridge}"
+STATE_DIR="${SERVERBRIDGE_STATE_DIR:-/var/lib/serverbridge}"
+BIN_DIR="${SERVERBRIDGE_BIN_DIR:-/usr/local/lib/serverbridge}"
+PROFILE_DIR="$CONFIG_DIR/tunnel-client"
+PROFILE_NAME="serverbridge"
+SERVICE_NAME="serverbridge"
+
+DRY_RUN=0
+NO_START=0
+TUNNEL_ID="${SERVERBRIDGE_TUNNEL_ID:-${CONTROL_PLANE_TUNNEL_ID:-}}"
+RUNTIME_KEY="${CONTROL_PLANE_API_KEY:-}"
+
+TMP_DIR=""
+NEW_RELEASE=""
+PREVIOUS_CURRENT=""
+BACKUP_DIR=""
+TRANSACTION_STARTED=0
+ROOT_EXISTED=0
+CONFIG_EXISTED=0
+STATE_EXISTED=0
+BIN_EXISTED=0
+
+if [[ -t 1 ]]; then
+  RESET=$'\033[0m'; BOLD=$'\033[1m'; BLUE=$'\033[34m'
+  GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RED=$'\033[31m'; DIM=$'\033[2m'
+else
+  RESET=""; BOLD=""; BLUE=""; GREEN=""; YELLOW=""; RED=""; DIM=""
+fi
+
+say()  { printf '%b\n' "$*"; }
+info() { say "${BLUE}●${RESET} $*"; }
+ok()   { say "${GREEN}✓${RESET} $*"; }
+warn() { say "${YELLOW}!${RESET} $*"; }
+die()  { say "${RED}✗${RESET} $*" >&2; exit 1; }
+step() { say ""; say "${BOLD}${BLUE}[$1/9]${RESET} ${BOLD}$2${RESET}"; }
+
+usage() {
+  cat <<'USAGE'
+ServerBridge installer
+
+Usage:
+  sudo bash install.sh [options]
+
+Options:
+  --dry-run       Detect and validate only; do not modify the server.
+  --no-start      Install and validate but do not start the service.
+  --tunnel-id ID  Supply the tunnel ID non-interactively.
+  --help          Show this help.
+
+Secrets:
+  CONTROL_PLANE_API_KEY may be supplied in the environment.
+  There is intentionally no --api-key option, to reduce shell-history/process-list leakage.
+USAGE
+}
+
+while (($#)); do
+  case "$1" in
+    --dry-run) DRY_RUN=1 ;;
+    --no-start) NO_START=1 ;;
+    --tunnel-id)
+      shift
+      (($#)) || die "--tunnel-id requires a value"
+      TUNNEL_ID="$1"
+      ;;
+    --help|-h) usage; exit 0 ;;
+    *) die "Unknown option: $1 (use --help)" ;;
+  esac
+  shift
+done
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+backup_optional() {
+  local path="$1" name="$2"
+  if [[ -e "$path" || -L "$path" ]]; then
+    touch "$BACKUP_DIR/$name.exists"
+    cp -a "$path" "$BACKUP_DIR/$name"
+  fi
+}
+
+restore_optional() {
+  local path="$1" name="$2"
+  rm -rf "$path" 2>/dev/null || true
+  if [[ -e "$BACKUP_DIR/$name.exists" ]]; then
+    mkdir -p "$(dirname "$path")"
+    cp -a "$BACKUP_DIR/$name" "$path"
+  fi
+}
+
+restart_previous_quietly() {
+  if have systemctl && [[ -f /etc/systemd/system/serverbridge.service ]]; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl restart serverbridge.service >/dev/null 2>&1 || true
+  elif have rc-service && [[ -f /etc/init.d/serverbridge ]]; then
+    rc-service serverbridge restart >/dev/null 2>&1 || true
+  fi
+}
+
+cleanup() {
+  local rc=$?
+
+  if ((rc != 0)) && ((TRANSACTION_STARTED == 1)); then
+    warn "Installation failed; restoring the previous ServerBridge state."
+
+    if [[ -n "$PREVIOUS_CURRENT" && -e "$PREVIOUS_CURRENT" ]]; then
+      ln -sfn "$PREVIOUS_CURRENT" "$INSTALL_ROOT/current" || true
+    else
+      rm -f "$INSTALL_ROOT/current" || true
+    fi
+
+    restore_optional "$CONFIG_DIR/runtime.env" runtime.env
+    restore_optional "$CONFIG_DIR/serverbridge.env" serverbridge.env
+    restore_optional "$PROFILE_DIR/$PROFILE_NAME.yaml" profile.yaml
+    restore_optional "$BIN_DIR/tunnel-client" tunnel-client
+    restore_optional "$BIN_DIR/launch-mcp" launch-mcp
+    restore_optional /usr/local/sbin/serverbridgectl serverbridgectl
+
+    if [[ ! -e "$BACKUP_DIR/systemd.service.exists" ]] && have systemctl; then
+      systemctl disable serverbridge.service >/dev/null 2>&1 || true
+    fi
+    restore_optional /etc/systemd/system/serverbridge.service systemd.service
+
+    if [[ ! -e "$BACKUP_DIR/openrc.service.exists" ]] && have rc-update; then
+      rc-update del serverbridge default >/dev/null 2>&1 || true
+    fi
+    restore_optional /etc/init.d/serverbridge openrc.service
+
+    restart_previous_quietly
+
+    [[ -n "$NEW_RELEASE" && -d "$NEW_RELEASE" ]] && rm -rf "$NEW_RELEASE" || true
+
+    if ((ROOT_EXISTED == 0)); then rm -rf "$INSTALL_ROOT" || true; fi
+    if ((CONFIG_EXISTED == 0)); then rm -rf "$CONFIG_DIR" || true; fi
+    if ((STATE_EXISTED == 0)); then rm -rf "$STATE_DIR" || true; fi
+    if ((BIN_EXISTED == 0)); then rm -rf "$BIN_DIR" || true; fi
+  fi
+
+  [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]] && rm -rf "$TMP_DIR" || true
+  trap - EXIT
+  exit "$rc"
+}
+trap cleanup EXIT
+trap 'die "Interrupted"' INT TERM
+
+run() {
+  if ((DRY_RUN)); then
+    printf '%b\n' "${DIM}DRY-RUN:${RESET} $(printf '%q ' "$@")"
+  else
+    "$@"
+  fi
+}
+
+require_root() {
+  if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
+    die "Run as root/sudo. Recommended: curl -fsSL https://raw.githubusercontent.com/$REPO/$BRANCH/install.sh | sudo bash"
+  fi
+}
+
+visible_input() {
+  local prompt="$1" value
+  [[ -r /dev/tty ]] || return 1
+  printf '%b' "$prompt" >/dev/tty
+  IFS= read -r value </dev/tty || return 1
+  printf '%s' "$value"
+}
+
+secret_input() {
+  local prompt="$1" value
+  [[ -r /dev/tty ]] || return 1
+  printf '%b' "$prompt" >/dev/tty
+  IFS= read -r -s value </dev/tty || return 1
+  printf '\n' >/dev/tty
+  printf '%s' "$value"
+}
+
+load_existing_credentials() {
+  if [[ -r "$CONFIG_DIR/runtime.env" ]]; then
+    local old_id old_key
+    old_id="$(grep -m1 '^CONTROL_PLANE_TUNNEL_ID=' "$CONFIG_DIR/runtime.env" 2>/dev/null | cut -d= -f2- || true)"
+    old_key="$(grep -m1 '^CONTROL_PLANE_API_KEY=' "$CONFIG_DIR/runtime.env" 2>/dev/null | cut -d= -f2- || true)"
+    [[ -n "$TUNNEL_ID" ]] || TUNNEL_ID="$old_id"
+    [[ -n "$RUNTIME_KEY" ]] || RUNTIME_KEY="$old_key"
+  fi
+}
+
+prompt_credentials() {
+  say "${BOLD}ServerBridge${RESET} — VPS ↔ OpenAI Secure MCP Tunnel"
+  say "${DIM}No ServerBridge state is changed until preflight passes.${RESET}"
+
+  if [[ -z "$TUNNEL_ID" ]]; then
+    say ""
+    say "Create/inspect tunnels:"
+    say "  ${BLUE}https://platform.openai.com/settings/organization/tunnels${RESET}"
+    TUNNEL_ID="$(visible_input "Tunnel ID ${DIM}(visible)${RESET}: ")" ||
+      die "No interactive terminal. Set SERVERBRIDGE_TUNNEL_ID."
+  fi
+
+  [[ "$TUNNEL_ID" =~ ^tunnel_[A-Za-z0-9_-]{8,}$ ]] ||
+    die "Tunnel ID must look like tunnel_..."
+  ok "Tunnel ID accepted: $TUNNEL_ID"
+
+  if ((DRY_RUN)) && [[ -z "$RUNTIME_KEY" ]]; then
+    RUNTIME_KEY="dry-run-placeholder"
+    info "Dry-run: runtime-key prompt skipped."
+  elif [[ -z "$RUNTIME_KEY" ]]; then
+    say ""
+    say "Create a runtime API key:"
+    say "  ${BLUE}https://platform.openai.com/settings/organization/api-keys${RESET}"
+    RUNTIME_KEY="$(secret_input "Runtime API key ${DIM}(hidden)${RESET}: ")" ||
+      die "No interactive terminal. Set CONTROL_PLANE_API_KEY."
+  fi
+
+  [[ -n "$RUNTIME_KEY" && "$RUNTIME_KEY" != *$'\n'* && "$RUNTIME_KEY" != *$'\r'* &&
+     "$RUNTIME_KEY" != *' '* && "$RUNTIME_KEY" != *$'\t'* ]] ||
+    die "Runtime API key is empty or contains whitespace."
+
+  ok "Runtime key received (not displayed)."
+}
+
+OS_ID="unknown"
+OS_VERSION="unknown"
+ARCH=""
+PKG=""
+INIT=""
+PYTHON_BIN=""
+
+detect_system() {
+  [[ "$(uname -s)" == "Linux" ]] || die "ServerBridge currently supports Linux servers only."
+
+  case "$(uname -m)" in
+    x86_64|amd64) ARCH="amd64" ;;
+    aarch64|arm64) ARCH="arm64" ;;
+    *) die "Unsupported CPU architecture: $(uname -m). Supported: amd64, arm64." ;;
+  esac
+
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    OS_ID="${ID:-unknown}"
+    OS_VERSION="${VERSION_ID:-unknown}"
+  fi
+
+  if have apt-get; then PKG="apt"
+  elif have dnf; then PKG="dnf"
+  elif have yum; then PKG="yum"
+  elif have apk; then PKG="apk"
+  elif have pacman; then PKG="pacman"
+  elif have zypper; then PKG="zypper"
+  else PKG="none"
+  fi
+
+  if have systemctl && [[ -d /run/systemd/system || "$(ps -p 1 -o comm= 2>/dev/null | tr -d ' ')" == "systemd" ]]; then
+    INIT="systemd"
+  elif have rc-service; then
+    INIT="openrc"
+  else
+    INIT="manual"
+  fi
+}
+
+python_ok() {
+  local py="$1"
+  "$py" - <<'PY' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 10) else 1)
+PY
+}
+
+select_python() {
+  local py
+  for py in python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
+    if have "$py" && python_ok "$py"; then
+      PYTHON_BIN="$(command -v "$py")"
+      return 0
+    fi
+  done
+  return 1
+}
+
+venv_ok() {
+  local py="$1" d
+  d="$(mktemp -d /tmp/serverbridge-venv.XXXXXX)"
+  if "$py" -m venv "$d/venv" >/dev/null 2>&1; then
+    rm -rf "$d"
+    return 0
+  fi
+  rm -rf "$d"
+  return 1
+}
+
+install_dependencies() {
+  if ((DRY_RUN)); then
+    info "Would install missing prerequisites using package manager: $PKG"
+    return 0
+  fi
+
+  case "$PKG" in
+    apt)
+      env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+      env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends         ca-certificates curl unzip tar gzip coreutils procps python3 python3-venv python3-pip
+      ;;
+    dnf) dnf install -y ca-certificates curl unzip tar gzip coreutils procps-ng python3 python3-pip ;;
+    yum) yum install -y ca-certificates curl unzip tar gzip coreutils procps-ng python3 python3-pip ;;
+    apk) apk add --no-cache ca-certificates curl unzip tar gzip coreutils procps python3 py3-pip py3-virtualenv ;;
+    pacman) pacman -Sy --noconfirm --needed ca-certificates curl unzip tar gzip coreutils procps-ng python python-pip ;;
+    zypper) zypper --non-interactive install --no-recommends ca-certificates curl unzip tar gzip coreutils procps python3 python3-pip python3-virtualenv ;;
+    none) die "No supported package manager. Install curl, unzip, tar, sha256sum, ps and Python >=3.10, then rerun." ;;
+  esac
+}
+
+prereqs_ready() {
+  select_python || return 1
+  have curl && have unzip && have tar && have sha256sum && have install && have ps && venv_ok "$PYTHON_BIN"
+}
+
+check_conflicts() {
+  if [[ -d "$INSTALL_ROOT" && ! -e "$INSTALL_ROOT/.serverbridge-managed" ]]; then
+    die "$INSTALL_ROOT already exists but is not ServerBridge-managed."
+  fi
+
+  if [[ ! -e "$INSTALL_ROOT/.serverbridge-managed" ]]; then
+    [[ ! -e /etc/systemd/system/serverbridge.service ]] ||
+      die "A foreign /etc/systemd/system/serverbridge.service exists."
+    [[ ! -e /etc/init.d/serverbridge ]] ||
+      die "A foreign /etc/init.d/serverbridge exists."
+    [[ ! -e /usr/local/sbin/serverbridgectl ]] ||
+      die "A foreign /usr/local/sbin/serverbridgectl exists."
+    [[ ! -d "$BIN_DIR" ]] ||
+      die "$BIN_DIR exists without a managed ServerBridge installation."
+  fi
+}
+
+network_preflight() {
+  curl -fsSIL --max-time 15 https://github.com/openai/tunnel-client/releases/latest >/dev/null ||
+    die "Cannot reach GitHub releases over HTTPS."
+  curl -fsSIL --max-time 15 https://pypi.org/simple/mcp/ >/dev/null ||
+    die "Cannot reach PyPI over HTTPS."
+  curl -sSIL --max-time 15 https://api.openai.com/ >/dev/null ||
+    die "Cannot reach api.openai.com over HTTPS."
+}
+
+latest_tunnel_tag() {
+  local effective tag
+  effective="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/openai/tunnel-client/releases/latest)"
+  tag="${effective##*/}"
+  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+    die "Could not determine stable tunnel-client release tag: $tag"
+  printf '%s' "$tag"
+}
+
+fetch_source() {
+  local archive="$TMP_DIR/serverbridge.tar.gz"
+  mkdir -p "$TMP_DIR/source"
+
+  curl -fL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 180     "https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz" -o "$archive"
+
+  tar -xzf "$archive" -C "$TMP_DIR/source" --strip-components=1
+
+  [[ -f "$TMP_DIR/source/pyproject.toml" && -d "$TMP_DIR/source/serverbridge" ]] ||
+    die "Downloaded ServerBridge repository archive is incomplete."
+
+  printf '%s' "$TMP_DIR/source"
+}
+
+download_tunnel_client() {
+  local tag="$1"
+  local asset="tunnel-client-${tag}-linux-${ARCH}.zip"
+  local base="https://github.com/openai/tunnel-client/releases/download/${tag}"
+  local zip="$TMP_DIR/$asset"
+  local sums="$TMP_DIR/SHA256SUMS.txt"
+  local verify="$TMP_DIR/verify.sha256"
+  local extract="$TMP_DIR/tunnel"
+
+  curl -fL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 180 "$base/$asset" -o "$zip"
+  curl -fL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 60 "$base/SHA256SUMS.txt" -o "$sums"
+
+  grep -E "[[:space:]]${asset//./\\.}$" "$sums" > "$verify" ||
+    die "Official checksum list does not contain $asset."
+
+  (cd "$TMP_DIR" && sha256sum -c "$(basename "$verify")") >/dev/null ||
+    die "tunnel-client SHA-256 verification failed."
+
+  mkdir -p "$extract"
+  unzip -q "$zip" -d "$extract"
+
+  local binary
+  binary="$(find "$extract" -type f -name tunnel-client -perm -u+x -print -quit)"
+  [[ -n "$binary" ]] || binary="$(find "$extract" -type f -name tunnel-client -print -quit)"
+  [[ -n "$binary" ]] || die "tunnel-client binary was not found in the archive."
+
+  printf '%s' "$binary"
+}
+
+write_config() {
+  install -d -m 700 "$CONFIG_DIR" "$PROFILE_DIR"
+
+  cat > "$CONFIG_DIR/runtime.env.new" <<EOF
+CONTROL_PLANE_API_KEY=$RUNTIME_KEY
+CONTROL_PLANE_TUNNEL_ID=$TUNNEL_ID
+EOF
+  chmod 600 "$CONFIG_DIR/runtime.env.new"
+  mv -f "$CONFIG_DIR/runtime.env.new" "$CONFIG_DIR/runtime.env"
+
+  cat > "$CONFIG_DIR/serverbridge.env.new" <<EOF
+SERVERBRIDGE_ALLOWED_ROOTS=/
+SERVERBRIDGE_MAX_CAPTURE_BYTES=65536
+EOF
+  chmod 600 "$CONFIG_DIR/serverbridge.env.new"
+  mv -f "$CONFIG_DIR/serverbridge.env.new" "$CONFIG_DIR/serverbridge.env"
+}
+
+install_launcher() {
+  cat > "$BIN_DIR/launch-mcp" <<EOF
+#!/usr/bin/env sh
+set -eu
+set -a
+. "$CONFIG_DIR/serverbridge.env"
+set +a
+unset CONTROL_PLANE_API_KEY CONTROL_PLANE_TUNNEL_ID OPENAI_API_KEY OPENAI_ADMIN_KEY
+exec "$INSTALL_ROOT/current/.venv/bin/python" -m serverbridge.server
+EOF
+  chmod 755 "$BIN_DIR/launch-mcp"
+}
+
+install_control_cli() {
+  cat > /usr/local/sbin/serverbridgectl <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+CONFIG_DIR="$CONFIG_DIR"
+PROFILE_DIR="$PROFILE_DIR"
+PROFILE_NAME="$PROFILE_NAME"
+TUNNEL="$BIN_DIR/tunnel-client"
+INIT="$INIT"
+
+load_env() {
+  set -a
+  . "\$CONFIG_DIR/runtime.env"
+  . "\$CONFIG_DIR/serverbridge.env"
+  set +a
+}
+
+case "${1:-status}" in
+  doctor)
+    load_env
+    exec "\$TUNNEL" doctor --profile-dir "\$PROFILE_DIR" --profile "\$PROFILE_NAME" --explain
+    ;;
+  status)
+    if [[ "\$INIT" == systemd ]]; then systemctl status serverbridge --no-pager || true
+    elif [[ "\$INIT" == openrc ]]; then rc-service serverbridge status || true
+    else echo "No supported service manager configured."; fi
+    ;;
+  logs)
+    if [[ "\$INIT" == systemd ]]; then exec journalctl -u serverbridge -n "${2:-100}" --no-pager
+    else exec tail -n "${2:-100}" /var/log/serverbridge.log; fi
+    ;;
+  restart)
+    if [[ "\$INIT" == systemd ]]; then exec systemctl restart serverbridge
+    elif [[ "\$INIT" == openrc ]]; then exec rc-service serverbridge restart
+    else echo "No supported service manager." >&2; exit 1; fi
+    ;;
+  stop)
+    if [[ "\$INIT" == systemd ]]; then exec systemctl stop serverbridge
+    elif [[ "\$INIT" == openrc ]]; then exec rc-service serverbridge stop
+    else exit 0; fi
+    ;;
+  *) echo "Usage: serverbridgectl {status|doctor|logs [N]|restart|stop}" >&2; exit 2 ;;
+esac
+EOF
+  chmod 755 /usr/local/sbin/serverbridgectl
+}
+
+create_systemd_service() {
+  cat > /etc/systemd/system/serverbridge.service <<EOF
+[Unit]
+Description=ServerBridge OpenAI Secure MCP Tunnel
+Documentation=https://github.com/$REPO
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+EnvironmentFile=$CONFIG_DIR/runtime.env
+EnvironmentFile=$CONFIG_DIR/serverbridge.env
+ExecStart=$BIN_DIR/tunnel-client run --profile-dir $PROFILE_DIR --profile $PROFILE_NAME
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable serverbridge.service >/dev/null
+}
+
+create_openrc_service() {
+  cat > /etc/init.d/serverbridge <<EOF
+#!/sbin/openrc-run
+name="ServerBridge"
+description="ServerBridge OpenAI Secure MCP Tunnel"
+command="$BIN_DIR/tunnel-client"
+command_args="run --profile-dir $PROFILE_DIR --profile $PROFILE_NAME"
+command_background="yes"
+pidfile="/run/serverbridge.pid"
+output_log="/var/log/serverbridge.log"
+error_log="/var/log/serverbridge.log"
+
+start_pre() {
+  set -a
+  . "$CONFIG_DIR/runtime.env"
+  . "$CONFIG_DIR/serverbridge.env"
+  set +a
+}
+
+depend() {
+  need net
+  after firewall
+}
+EOF
+
+  chmod 755 /etc/init.d/serverbridge
+  rc-update add serverbridge default >/dev/null
+}
+
+start_and_verify() {
+  case "$INIT" in
+    systemd)
+      systemctl restart serverbridge.service
+      local stable=0
+      for _ in {1..25}; do
+        if systemctl is-active --quiet serverbridge.service; then
+          stable=$((stable + 1))
+          ((stable >= 5)) && return 0
+        else
+          stable=0
+        fi
+        sleep 1
+      done
+      journalctl -u serverbridge.service -n 80 --no-pager >&2 || true
+      return 1
+      ;;
+    openrc)
+      rc-service serverbridge restart
+      sleep 3
+      rc-service serverbridge status
+      ;;
+    manual)
+      return 0
+      ;;
+  esac
+}
+
+require_root
+load_existing_credentials
+
+step 1 "Tunnel credentials"
+prompt_credentials
+
+step 2 "Server preflight"
+detect_system
+info "OS=$OS_ID $OS_VERSION | arch=$ARCH | package-manager=$PKG | init=$INIT"
+check_conflicts
+ok "No foreign ServerBridge paths detected."
+
+step 3 "Prerequisites"
+if ! prereqs_ready; then
+  install_dependencies
+fi
+
+if ((DRY_RUN)) && ! prereqs_ready; then
+  warn "Dry-run: some prerequisites are currently missing; a real run would install them."
+else
+  prereqs_ready || die "Prerequisites remain unavailable after package installation."
+  ok "Python: $($PYTHON_BIN --version 2>&1)"
+fi
+
+step 4 "Network and official tunnel-client"
+if have curl; then
+  network_preflight
+  TUNNEL_TAG="$(latest_tunnel_tag)"
+  info "Latest stable tunnel-client: $TUNNEL_TAG"
+else
+  ((DRY_RUN)) || die "curl is unavailable."
+  TUNNEL_TAG="latest-stable"
+  warn "Dry-run: curl is unavailable, so live network checks were skipped."
+fi
+
+if ((DRY_RUN)); then
+  info "Would download the official linux-$ARCH tunnel-client and verify SHA-256."
+fi
+
+step 5 "Prepare isolated release"
+if ((DRY_RUN)); then
+  info "Would create a new release under $INSTALL_ROOT/releases/."
+else
+  TMP_DIR="$(mktemp -d /tmp/serverbridge.XXXXXX)"
+  SOURCE_DIR="$(fetch_source)"
+  RELEASE_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  NEW_RELEASE="$INSTALL_ROOT/releases/$RELEASE_ID"
+
+  [[ -d "$INSTALL_ROOT" ]] && ROOT_EXISTED=1
+  [[ -d "$CONFIG_DIR" ]] && CONFIG_EXISTED=1
+  [[ -d "$STATE_DIR" ]] && STATE_EXISTED=1
+  [[ -d "$BIN_DIR" ]] && BIN_EXISTED=1
+
+  install -d -m 755 "$INSTALL_ROOT/releases" "$STATE_DIR" "$BIN_DIR"
+  touch "$INSTALL_ROOT/.serverbridge-managed"
+  install -d -m 755 "$NEW_RELEASE"
+
+  cp -a "$SOURCE_DIR/." "$NEW_RELEASE/"
+  rm -rf "$NEW_RELEASE/.git" || true
+
+  "$PYTHON_BIN" -m venv "$NEW_RELEASE/.venv"
+  "$NEW_RELEASE/.venv/bin/python" -m pip install --disable-pip-version-check --no-input --upgrade "pip<26" >/dev/null
+  "$NEW_RELEASE/.venv/bin/python" -m pip install --disable-pip-version-check --no-input "$NEW_RELEASE" >/dev/null
+  "$NEW_RELEASE/.venv/bin/python" -c 'import mcp, serverbridge; print(serverbridge.__version__)' >/dev/null
+fi
+ok "Release preparation passed."
+
+step 6 "Verified tunnel-client"
+if ((DRY_RUN)); then
+  info "Would install versioned tunnel-client and an atomic current symlink."
+else
+  BACKUP_DIR="$TMP_DIR/rollback"
+  mkdir -p "$BACKUP_DIR"
+
+  [[ -L "$INSTALL_ROOT/current" ]] && PREVIOUS_CURRENT="$(readlink -f "$INSTALL_ROOT/current" || true)"
+
+  backup_optional "$CONFIG_DIR/runtime.env" runtime.env
+  backup_optional "$CONFIG_DIR/serverbridge.env" serverbridge.env
+  backup_optional "$PROFILE_DIR/$PROFILE_NAME.yaml" profile.yaml
+  backup_optional "$BIN_DIR/tunnel-client" tunnel-client
+  backup_optional "$BIN_DIR/launch-mcp" launch-mcp
+  backup_optional /usr/local/sbin/serverbridgectl serverbridgectl
+  backup_optional /etc/systemd/system/serverbridge.service systemd.service
+  backup_optional /etc/init.d/serverbridge openrc.service
+
+  TRANSACTION_STARTED=1
+
+  TUNNEL_SOURCE="$(download_tunnel_client "$TUNNEL_TAG")"
+  install -m 755 "$TUNNEL_SOURCE" "$BIN_DIR/tunnel-client-$TUNNEL_TAG"
+  ln -sfn "$BIN_DIR/tunnel-client-$TUNNEL_TAG" "$BIN_DIR/tunnel-client"
+fi
+ok "tunnel-client prepared."
+
+step 7 "Protected config and MCP profile"
+if ((DRY_RUN)); then
+  info "Would create root-only runtime config and stdio MCP profile."
+else
+  write_config
+  ln -sfn "$NEW_RELEASE" "$INSTALL_ROOT/current"
+  install_launcher
+
+  set -a
+  . "$CONFIG_DIR/runtime.env"
+  . "$CONFIG_DIR/serverbridge.env"
+  set +a
+
+  "$BIN_DIR/tunnel-client" init     --sample sample_mcp_stdio_local     --profile "$PROFILE_NAME"     --profile-dir "$PROFILE_DIR"     --tunnel-id "$TUNNEL_ID"     --mcp-command "$BIN_DIR/launch-mcp"     --health-listen-addr 127.0.0.1:0     --force >/dev/null
+
+  chmod 700 "$PROFILE_DIR"
+  chmod 600 "$PROFILE_DIR/$PROFILE_NAME.yaml"
+fi
+ok "Tunnel profile prepared."
+
+step 8 "Doctor and service manager"
+if ((DRY_RUN)); then
+  info "Would run tunnel-client doctor --explain and create the $INIT service integration."
+else
+  set -a
+  . "$CONFIG_DIR/runtime.env"
+  . "$CONFIG_DIR/serverbridge.env"
+  set +a
+
+  "$BIN_DIR/tunnel-client" doctor     --profile-dir "$PROFILE_DIR"     --profile "$PROFILE_NAME"     --explain
+
+  install_control_cli
+
+  case "$INIT" in
+    systemd) create_systemd_service ;;
+    openrc) create_openrc_service ;;
+    manual) warn "No supported init system; automatic 24/7 supervision was not configured." ;;
+  esac
+fi
+ok "Validation and service setup passed."
+
+step 9 "Start and verify"
+if ((DRY_RUN)); then
+  ok "Dry-run complete. No ServerBridge files/config/services were changed."
+  TRANSACTION_STARTED=0
+  exit 0
+fi
+
+if ((NO_START)); then
+  ok "Installed and validated; start skipped by --no-start."
+elif [[ "$INIT" == manual ]]; then
+  ok "Installed and validated; no supported init system, so no automatic start was claimed."
+elif start_and_verify; then
+  ok "ServerBridge stayed active through the verification window."
+else
+  die "ServerBridge did not stay healthy; rollback will restore the previous installation."
+fi
+
+TRANSACTION_STARTED=0
+NEW_RELEASE=""
+
+say ""
+say "${GREEN}${BOLD}ServerBridge installation complete.${RESET}"
+say "  Status: ${BOLD}sudo serverbridgectl status${RESET}"
+say "  Doctor: ${BOLD}sudo serverbridgectl doctor${RESET}"
+say "  Logs:   ${BOLD}sudo serverbridgectl logs${RESET}"
+say ""
+say "ChatGPT connectors:"
+say "  ${BLUE}https://chatgpt.com/#settings/Connectors${RESET}"
+say "OpenAI tunnels:"
+say "  ${BLUE}https://platform.openai.com/settings/organization/tunnels${RESET}"
