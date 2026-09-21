@@ -1,27 +1,62 @@
 # Installation
 
-## Inputs you need
+## Before you start
 
-ServerBridge requires two OpenAI values:
+Create:
 
-1. `CONTROL_PLANE_TUNNEL_ID` — your `tunnel_...` identifier.
-2. `CONTROL_PLANE_API_KEY` — the runtime API key used by `tunnel-client`.
+- Tunnel ID: https://platform.openai.com/settings/organization/tunnels
+- Runtime API key: https://platform.openai.com/settings/organization/api-keys
 
-Setup pages:
-
-- https://platform.openai.com/settings/organization/tunnels
-- https://platform.openai.com/settings/organization/api-keys
-- https://chatgpt.com/#settings/Connectors
-
-## One-line install
+Then run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/install.sh | sudo bash
 ```
 
-The tunnel ID is intentionally visible. The runtime key is read with terminal echo disabled.
+The installer asks only for the tunnel ID and runtime key.
 
-## Non-interactive automation
+The tunnel ID is visible while typing. The runtime key is hidden.
+
+## What happens automatically
+
+ServerBridge:
+
+1. Checks the Linux host and dependencies.
+2. Verifies network access.
+3. Downloads the latest stable official `openai/tunnel-client` and checks SHA-256.
+4. Installs ServerBridge into an isolated release directory.
+5. Creates the stdio tunnel profile and autostart service.
+6. Runs `doctor`, starts the service, and verifies it stays healthy.
+
+No inbound MCP port is opened.
+
+## Check the installation
+
+```bash
+sudo serverbridgectl check
+```
+
+For more detail:
+
+```bash
+sudo serverbridgectl status
+sudo serverbridgectl doctor
+sudo serverbridgectl logs 200
+```
+
+## Dry-run
+
+```bash
+sudo SERVERBRIDGE_TUNNEL_ID=tunnel_example \
+  CONTROL_PLANE_API_KEY=sk-test-placeholder \
+  ./install.sh --dry-run
+```
+
+## Proxies and private CA
+
+If the installer is started with standard proxy variables such as `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, or tunnel-client CA variables, ServerBridge preserves them in a root-only network environment file for the long-running service.
+
+## Non-interactive installation
 
 ```bash
 sudo env \
@@ -30,18 +65,4 @@ sudo env \
   bash install.sh
 ```
 
-For normal interactive use, prefer the hidden prompt so the key is not saved in shell history.
-
-## Phases
-
-1. Validate credentials.
-2. Detect Linux distribution, architecture, package manager and init system.
-3. Install/validate prerequisites.
-4. Verify outbound HTTPS.
-5. Resolve and checksum-verify the latest stable OpenAI tunnel-client.
-6. Prepare an isolated ServerBridge Python release.
-7. Create the stdio MCP tunnel profile.
-8. Run `tunnel-client doctor --explain`.
-9. Configure systemd/OpenRC, start, and verify.
-
-The MCP server is stdio, so no inbound MCP port is opened.
+For normal use, the interactive hidden key prompt is preferable because it avoids placing the key directly in shell history.
