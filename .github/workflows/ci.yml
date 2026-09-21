@@ -71,6 +71,9 @@ jobs:
       - name: Real MCP smoke test
         run: python tests/mcp_smoke.py
 
+      - name: Security boundary smoke test
+        run: python tests/security_smoke.py
+
       - name: Manifest smoke test
         run: |
           python - <<'PY'
