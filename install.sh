@@ -16,7 +16,8 @@ DRY_RUN=0
 NO_START=0
 TUNNEL_ID="${SERVERBRIDGE_TUNNEL_ID:-${CONTROL_PLANE_TUNNEL_ID:-}}"
 RUNTIME_KEY="${CONTROL_PLANE_API_KEY:-}"
-SOURCE_SHA=""
+SOURCE_SHA="${SERVERBRIDGE_SOURCE_SHA:-}"
+SOURCE_DIR_OVERRIDE="${SERVERBRIDGE_SOURCE_DIR:-}"
 
 TMP_DIR=""
 NEW_RELEASE=""
@@ -426,6 +427,18 @@ latest_tunnel_tag() {
   printf '%s' "$tag"
 }
 
+detect_local_source() {
+  [[ -n "$SOURCE_DIR_OVERRIDE" ]] && return 0
+
+  local script_path="${BASH_SOURCE[0]:-}" script_dir=""
+  if [[ -n "$script_path" && -f "$script_path" ]]; then
+    script_dir="$(cd "$(dirname "$script_path")" && pwd -P)"
+    if [[ -f "$script_dir/pyproject.toml" && -d "$script_dir/serverbridge" ]]; then
+      SOURCE_DIR_OVERRIDE="$script_dir"
+    fi
+  fi
+}
+
 resolve_source_sha() {
   local sha
   sha="$(curl -fsSL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 60     "https://api.github.com/repos/$REPO/commits/$BRANCH" |
@@ -438,10 +451,23 @@ resolve_source_sha() {
 }
 
 fetch_source() {
+  if [[ -n "$SOURCE_DIR_OVERRIDE" ]]; then
+    local local_source
+    local_source="$(cd "$SOURCE_DIR_OVERRIDE" && pwd -P)"
+    [[ -f "$local_source/pyproject.toml" && -d "$local_source/serverbridge" ]] ||
+      die "SERVERBRIDGE_SOURCE_DIR is not a valid ServerBridge source tree."
+    printf '%s' "$local_source"
+    return 0
+  fi
+
+  [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+    die "ServerBridge source commit is not pinned."
+
   local archive="$TMP_DIR/serverbridge.tar.gz"
   mkdir -p "$TMP_DIR/source"
 
-  curl -fL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 180     "https://github.com/$REPO/archive/$SOURCE_SHA.tar.gz" -o "$archive"
+  curl -fL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 180 \
+    "https://github.com/$REPO/archive/$SOURCE_SHA.tar.gz" -o "$archive"
 
   tar -xzf "$archive" -C "$TMP_DIR/source" --strip-components=1
 
@@ -774,15 +800,23 @@ else
 fi
 
 check_resources
+detect_local_source
 
 if have curl; then
   network_preflight
   TUNNEL_TAG="$(latest_tunnel_tag)"
-  SOURCE_SHA="$(resolve_source_sha)"
+
+  if [[ -z "$SOURCE_DIR_OVERRIDE" ]]; then
+    if [[ -z "$SOURCE_SHA" ]]; then
+      SOURCE_SHA="$(resolve_source_sha)"
+    elif [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+      die "SERVERBRIDGE_SOURCE_SHA must be a 40-character Git commit SHA."
+    fi
+  fi
 else
   ((DRY_RUN)) || die "curl is unavailable."
   TUNNEL_TAG="latest-stable"
-  SOURCE_SHA="unresolved-in-dry-run"
+  [[ -n "$SOURCE_DIR_OVERRIDE" ]] || SOURCE_SHA="unresolved-in-dry-run"
   warn "curl is unavailable; live network checks were skipped in dry-run."
 fi
 ok "Server checks passed."
