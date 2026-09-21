@@ -10,7 +10,7 @@ Create:
 Then run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/bootstrap.sh | sudo bash
 ```
 
 The installer asks only for the tunnel ID and runtime key.
