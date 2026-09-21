@@ -583,7 +583,7 @@ EOF
 SERVERBRIDGE_ALLOWED_ROOTS=/
 SERVERBRIDGE_MAX_CAPTURE_BYTES=65536
 SERVERBRIDGE_MAX_HASH_BYTES=67108864
-SERVERBRIDGE_PROTECTED_PATHS=$CONFIG_DIR/runtime.env:$CONFIG_DIR/network.env:$CONFIG_DIR/network.sh:$PROFILE_DIR
+SERVERBRIDGE_PROTECTED_PATHS=$CONFIG_DIR/runtime.env:$CONFIG_DIR/network.env:$CONFIG_DIR/network.sh:$PROFILE_DIR:/proc:/run/credentials:/run/secrets:/root/.ssh:/etc/ssl/private:/etc/shadow:/etc/gshadow
 EOF
   chmod 600 "$CONFIG_DIR/serverbridge.env.new"
   mv -f "$CONFIG_DIR/serverbridge.env.new" "$CONFIG_DIR/serverbridge.env"
