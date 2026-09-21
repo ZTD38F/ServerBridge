@@ -18,6 +18,7 @@ DRY_RUN=0
 NO_START=0
 TUNNEL_ID="${SERVERBRIDGE_TUNNEL_ID:-${CONTROL_PLANE_TUNNEL_ID:-}}"
 RUNTIME_KEY="${CONTROL_PLANE_API_KEY:-}"
+SOURCE_SHA=""
 
 TMP_DIR=""
 NEW_RELEASE=""
@@ -377,11 +378,22 @@ latest_tunnel_tag() {
   printf '%s' "$tag"
 }
 
+resolve_source_sha() {
+  local sha
+  sha="$(curl -fsSL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 60     "https://api.github.com/repos/$REPO/commits/$BRANCH" |
+    "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["sha"])')"
+
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] ||
+    die "Could not pin the ServerBridge source commit."
+
+  printf '%s' "$sha"
+}
+
 fetch_source() {
   local archive="$TMP_DIR/serverbridge.tar.gz"
   mkdir -p "$TMP_DIR/source"
 
-  curl -fL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 180     "https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz" -o "$archive"
+  curl -fL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 180     "https://github.com/$REPO/archive/$SOURCE_SHA.tar.gz" -o "$archive"
 
   tar -xzf "$archive" -C "$TMP_DIR/source" --strip-components=1
 
@@ -678,9 +690,11 @@ fi
 if have curl; then
   network_preflight
   TUNNEL_TAG="$(latest_tunnel_tag)"
+  SOURCE_SHA="$(resolve_source_sha)"
 else
   ((DRY_RUN)) || die "curl is unavailable."
   TUNNEL_TAG="latest-stable"
+  SOURCE_SHA="unresolved-in-dry-run"
   warn "curl is unavailable; live network checks were skipped in dry-run."
 fi
 ok "Server checks passed."
