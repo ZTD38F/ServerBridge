@@ -12,8 +12,6 @@ STATE_DIR="${SERVERBRIDGE_STATE_DIR:-/var/lib/serverbridge}"
 BIN_DIR="${SERVERBRIDGE_BIN_DIR:-/usr/local/lib/serverbridge}"
 PROFILE_DIR="$CONFIG_DIR/tunnel-client"
 PROFILE_NAME="serverbridge"
-SERVICE_NAME="serverbridge"
-
 DRY_RUN=0
 NO_START=0
 TUNNEL_ID="${SERVERBRIDGE_TUNNEL_ID:-${CONTROL_PLANE_TUNNEL_ID:-}}"
@@ -139,7 +137,9 @@ cleanup() {
 
     restart_previous_quietly
 
-    [[ -n "$NEW_RELEASE" && -d "$NEW_RELEASE" ]] && rm -rf "$NEW_RELEASE" || true
+    if [[ -n "$NEW_RELEASE" && -d "$NEW_RELEASE" ]]; then
+      rm -rf "$NEW_RELEASE" || true
+    fi
 
     if ((ROOT_EXISTED == 0)); then rm -rf "$INSTALL_ROOT" || true; fi
     if ((CONFIG_EXISTED == 0)); then rm -rf "$CONFIG_DIR" || true; fi
@@ -147,7 +147,9 @@ cleanup() {
     if ((BIN_EXISTED == 0)); then rm -rf "$BIN_DIR" || true; fi
   fi
 
-  [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]] && rm -rf "$TMP_DIR" || true
+  if [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]]; then
+    rm -rf "$TMP_DIR" || true
+  fi
   trap - EXIT
   exit "$rc"
 }
@@ -788,9 +790,14 @@ else
   install_launcher
 
   set -a
+  # shellcheck disable=SC1091
   . "$CONFIG_DIR/runtime.env"
+  # shellcheck disable=SC1091
   . "$CONFIG_DIR/serverbridge.env"
-  [[ ! -r "$CONFIG_DIR/network.env" ]] || . "$CONFIG_DIR/network.env"
+  if [[ -r "$CONFIG_DIR/network.env" ]]; then
+    # shellcheck disable=SC1091
+    . "$CONFIG_DIR/network.env"
+  fi
   set +a
 
   "$BIN_DIR/tunnel-client" init     --sample sample_mcp_stdio_local     --profile "$PROFILE_NAME"     --profile-dir "$PROFILE_DIR"     --tunnel-id "$TUNNEL_ID"     --mcp-command "$BIN_DIR/launch-mcp"     --health-listen-addr 127.0.0.1:0     --force >/dev/null
