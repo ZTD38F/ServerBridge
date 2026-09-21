@@ -23,6 +23,6 @@ jobs:
     name: Latest OpenAI tunnel-client
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Verify release assets and required CLI
         run: bash scripts/check-upstream-tunnel.sh
