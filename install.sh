@@ -27,6 +27,7 @@ ROOT_EXISTED=0
 CONFIG_EXISTED=0
 STATE_EXISTED=0
 BIN_EXISTED=0
+CURRENT_STEP="startup"
 
 if [[ -t 1 ]]; then
   RESET=$'\033[0m'; BOLD=$'\033[1m'; BLUE=$'\033[34m'
@@ -40,7 +41,11 @@ info() { say "${BLUE}●${RESET} $*"; }
 ok()   { say "${GREEN}✓${RESET} $*"; }
 warn() { say "${YELLOW}!${RESET} $*"; }
 die()  { say "${RED}✗${RESET} $*" >&2; exit 1; }
-step() { say ""; say "${BOLD}${BLUE}[$1/5]${RESET} ${BOLD}$2${RESET}"; }
+step() {
+  CURRENT_STEP="$2"
+  say ""
+  say "${BOLD}${BLUE}[$1/5]${RESET} ${BOLD}$2${RESET}"
+}
 
 usage() {
   cat <<'USAGE'
@@ -106,6 +111,10 @@ restart_previous_quietly() {
 
 cleanup() {
   local rc=$?
+
+  if ((rc != 0)); then
+    warn "Failed during: $CURRENT_STEP."
+  fi
 
   if ((rc != 0)) && ((TRANSACTION_STARTED == 1)); then
     warn "Installation failed; restoring the previous ServerBridge state."
@@ -341,7 +350,39 @@ install_dependencies() {
 
 prereqs_ready() {
   select_python || return 1
-  have curl && have unzip && have tar && have sha256sum && have install && have grep && have find && have ps && venv_ok "$PYTHON_BIN"
+  have curl && have unzip && have tar && have sha256sum &&
+    have install && have grep && have find && have ps &&
+    have df && have tail && venv_ok "$PYTHON_BIN"
+}
+
+check_resources() {
+  local probe="$INSTALL_ROOT"
+  local fs blocks used available rest
+
+  while [[ ! -e "$probe" && "$probe" != "/" ]]; do
+    probe="$(dirname "$probe")"
+  done
+
+  if have df && have tail; then
+    read -r fs blocks used available rest < <(df -Pk "$probe" | tail -n 1)
+    if [[ "$available" =~ ^[0-9]+$ ]] && ((available < 262144)); then
+      die "Not enough free disk space near $INSTALL_ROOT. Need at least 256 MiB free."
+    fi
+  fi
+
+  if [[ -r /proc/meminfo ]]; then
+    local key value unit mem_available=""
+    while read -r key value unit; do
+      if [[ "$key" == "MemAvailable:" ]]; then
+        mem_available="$value"
+        break
+      fi
+    done < /proc/meminfo
+
+    if [[ "$mem_available" =~ ^[0-9]+$ ]] && ((mem_available < 131072)); then
+      warn "Less than 128 MiB RAM is currently available; installation may need swap."
+    fi
+  fi
 }
 
 check_conflicts() {
@@ -731,6 +772,8 @@ if ((DRY_RUN)) && ! prereqs_ready; then
 else
   prereqs_ready || die "Prerequisites remain unavailable after package installation."
 fi
+
+check_resources
 
 if have curl; then
   network_preflight
