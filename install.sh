@@ -117,8 +117,10 @@ cleanup() {
       rm -f "$INSTALL_ROOT/current" || true
     fi
 
+    restore_optional "$CONFIG_DIR/.serverbridge-managed" config.marker
     restore_optional "$CONFIG_DIR/runtime.env" runtime.env
     restore_optional "$CONFIG_DIR/serverbridge.env" serverbridge.env
+    restore_optional "$CONFIG_DIR/network.env" network.env
     restore_optional "$PROFILE_DIR/$PROFILE_NAME.yaml" profile.yaml
     restore_optional "$BIN_DIR/tunnel-client" tunnel-client
     restore_optional "$BIN_DIR/launch-mcp" launch-mcp
