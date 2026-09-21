@@ -515,7 +515,7 @@ doctor() {
   "\$TUNNEL" doctor --profile-dir "\$PROFILE_DIR" --profile "\$PROFILE_NAME" --explain
 }
 
-case "${1:-check}" in
+case "\${1:-check}" in
   check)
     load_env
     printf 'ServerBridge\n'
@@ -539,7 +539,7 @@ case "${1:-check}" in
       printf '  ! no supported service manager\n'
     fi
 
-    log="$(mktemp /tmp/serverbridge-doctor.XXXXXX)"
+    log="\$(mktemp /tmp/serverbridge-doctor.XXXXXX)"
     if "\$TUNNEL" doctor --profile-dir "\$PROFILE_DIR" --profile "\$PROFILE_NAME" --explain >"\$log" 2>&1; then
       printf '  ✓ tunnel profile valid\n'
     else
@@ -560,8 +560,8 @@ case "${1:-check}" in
     else echo "No supported service manager configured."; fi
     ;;
   logs)
-    if [[ "\$INIT" == systemd ]]; then exec journalctl -u serverbridge -n "${2:-100}" --no-pager
-    else exec tail -n "${2:-100}" /var/log/serverbridge.log; fi
+    if [[ "\$INIT" == systemd ]]; then exec journalctl -u serverbridge -n "\${2:-100}" --no-pager
+    else exec tail -n "\${2:-100}" /var/log/serverbridge.log; fi
     ;;
   restart)
     if [[ "\$INIT" == systemd ]]; then exec systemctl restart serverbridge
