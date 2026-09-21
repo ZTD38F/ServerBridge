@@ -24,8 +24,16 @@ async def main() -> None:
         missing = EXPECTED_TOOLS - names
         assert not missing, f"Missing MCP tools: {sorted(missing)}"
 
-        result = await client.call_tool("server_info", arguments={})
-        assert not result.is_error, result
+        calls = [
+            ("server_info", {}),
+            ("list_files", {"path": ".", "limit": 10}),
+            ("read_text", {"path": "README.md", "max_bytes": 4096}),
+            ("process_list", {"limit": 5}),
+        ]
+
+        for name, arguments in calls:
+            result = await client.call_tool(name, arguments=arguments)
+            assert not result.is_error, f"{name} failed: {result}"
 
 
 if __name__ == "__main__":
