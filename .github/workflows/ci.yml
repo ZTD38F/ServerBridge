@@ -23,6 +23,9 @@ jobs:
       - name: Help path
         run: bash install.sh --help >/dev/null
 
+      - name: Generated CLI template
+        run: python tests/test_installer_templates.py
+
       - name: Installer dry-run
         run: |
           sudo env             SERVERBRIDGE_TUNNEL_ID=tunnel_0123456789abcdef             CONTROL_PLANE_API_KEY=sk-test-placeholder             bash ./install.sh --dry-run
