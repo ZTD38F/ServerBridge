@@ -457,6 +457,30 @@ write_network_env() {
   mv -f "$CONFIG_DIR/network.env.new" "$CONFIG_DIR/network.env"
 }
 
+validate_tunnel_client_binary() {
+  local binary="$1" help flag
+
+  "$binary" --version >/dev/null 2>&1 ||
+    die "Downloaded tunnel-client cannot execute on this host."
+
+  help="$("$binary" init --help 2>&1)" ||
+    die "Downloaded tunnel-client does not provide a usable init command."
+  for flag in --profile-dir --tunnel-id --mcp-command --health-listen-addr; do
+    grep -Fq -- "$flag" <<<"$help" ||
+      die "Latest tunnel-client is missing required init flag: $flag"
+  done
+
+  help="$("$binary" doctor --help 2>&1)" ||
+    die "Downloaded tunnel-client does not provide a usable doctor command."
+  grep -Fq -- "--profile-dir" <<<"$help" ||
+    die "Latest tunnel-client is missing doctor --profile-dir."
+
+  help="$("$binary" run --help 2>&1)" ||
+    die "Downloaded tunnel-client does not provide a usable run command."
+  grep -Fq -- "--profile-dir" <<<"$help" ||
+    die "Latest tunnel-client is missing run --profile-dir."
+}
+
 write_config() {
   install -d -m 700 "$CONFIG_DIR" "$PROFILE_DIR"
   touch "$CONFIG_DIR/.serverbridge-managed"
@@ -745,6 +769,7 @@ else
   "$NEW_RELEASE/.venv/bin/python" -c 'import mcp, serverbridge; print(serverbridge.__version__)' >/dev/null
 
   TUNNEL_SOURCE="$(download_tunnel_client "$TUNNEL_TAG")"
+  validate_tunnel_client_binary "$TUNNEL_SOURCE"
   install -m 755 "$TUNNEL_SOURCE" "$BIN_DIR/tunnel-client-$TUNNEL_TAG"
   ln -sfn "$BIN_DIR/tunnel-client-$TUNNEL_TAG" "$BIN_DIR/tunnel-client"
 fi
