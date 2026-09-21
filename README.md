@@ -5,7 +5,7 @@
 The installer is designed for predictable server setup: it performs preflight checks, asks for the visible `tunnel_id`, accepts the runtime API key with hidden input, installs a verified OpenAI `tunnel-client`, creates an isolated Python environment, configures autostart, runs `doctor`, starts the bridge, and verifies the service.
 
 > [!WARNING]
-> ServerBridge exposes powerful server-administration tools. Treat a connected bridge like root SSH access. Use it only on systems you own or administer.
+> ServerBridge is intended for privileged server inspection. Treat access to the connected bridge as sensitive infrastructure access.
 
 ## Quick start
 
@@ -74,7 +74,9 @@ The uninstaller deliberately preserves `/etc/serverbridge` and never deletes the
 
 ## Built-in MCP tools
 
-`server_info`, `list_files`, `read_text`, `write_text`, `run_command`, `service_status`, `service_action`, `service_logs`, `process_list`.
+The public base MCP is intentionally read-only/diagnostic:
+
+`server_info`, `list_files`, `read_text`, `service_status`, `service_logs`, `process_list`.
 
 See the files in `docs/` for installation, architecture, security and troubleshooting details.
 
