@@ -28,6 +28,8 @@ ROOT_EXISTED=0
 CONFIG_EXISTED=0
 STATE_EXISTED=0
 BIN_EXISTED=0
+PREVIOUS_SERVICE_ACTIVE=0
+PREVIOUS_SERVICE_ENABLED=0
 CURRENT_STEP="startup"
 
 if [[ -t 1 ]]; then
@@ -101,12 +103,52 @@ restore_optional() {
   fi
 }
 
-restart_previous_quietly() {
-  if have systemctl && [[ -f /etc/systemd/system/serverbridge.service ]]; then
+capture_previous_service_state() {
+  PREVIOUS_SERVICE_ACTIVE=0
+  PREVIOUS_SERVICE_ENABLED=0
+
+  if [[ "$INIT" == "systemd" ]] && have systemctl &&
+     [[ -f /etc/systemd/system/serverbridge.service ]]; then
+    systemctl is-active --quiet serverbridge.service && PREVIOUS_SERVICE_ACTIVE=1 || true
+    systemctl is-enabled --quiet serverbridge.service && PREVIOUS_SERVICE_ENABLED=1 || true
+  elif [[ "$INIT" == "openrc" ]] && have rc-service &&
+       [[ -f /etc/init.d/serverbridge ]]; then
+    rc-service serverbridge status >/dev/null 2>&1 && PREVIOUS_SERVICE_ACTIVE=1 || true
+    if have rc-update && rc-update show 2>/dev/null | grep -Eq '(^|[[:space:]])serverbridge([[:space:]]|$)'; then
+      PREVIOUS_SERVICE_ENABLED=1
+    fi
+  fi
+}
+
+restore_previous_service_state() {
+  if [[ "$INIT" == "systemd" ]] && have systemctl; then
     systemctl daemon-reload >/dev/null 2>&1 || true
-    systemctl restart serverbridge.service >/dev/null 2>&1 || true
-  elif have rc-service && [[ -f /etc/init.d/serverbridge ]]; then
-    rc-service serverbridge restart >/dev/null 2>&1 || true
+
+    if ((PREVIOUS_SERVICE_ENABLED)); then
+      systemctl enable serverbridge.service >/dev/null 2>&1 || true
+    else
+      systemctl disable serverbridge.service >/dev/null 2>&1 || true
+    fi
+
+    if ((PREVIOUS_SERVICE_ACTIVE)); then
+      systemctl restart serverbridge.service >/dev/null 2>&1 || true
+    else
+      systemctl stop serverbridge.service >/dev/null 2>&1 || true
+    fi
+  elif [[ "$INIT" == "openrc" ]] && have rc-service; then
+    if have rc-update; then
+      if ((PREVIOUS_SERVICE_ENABLED)); then
+        rc-update add serverbridge default >/dev/null 2>&1 || true
+      else
+        rc-update del serverbridge default >/dev/null 2>&1 || true
+      fi
+    fi
+
+    if ((PREVIOUS_SERVICE_ACTIVE)); then
+      rc-service serverbridge restart >/dev/null 2>&1 || true
+    else
+      rc-service serverbridge stop >/dev/null 2>&1 || true
+    fi
   fi
 }
 
@@ -146,7 +188,7 @@ cleanup() {
     fi
     restore_optional /etc/init.d/serverbridge openrc.service
 
-    restart_previous_quietly
+    restore_previous_service_state
 
     if [[ -n "$NEW_RELEASE" && -d "$NEW_RELEASE" ]]; then
       rm -rf "$NEW_RELEASE" || true
@@ -837,6 +879,8 @@ else
 
   BACKUP_DIR="$TMP_DIR/rollback"
   mkdir -p "$BACKUP_DIR"
+
+  capture_previous_service_state
 
   [[ -L "$INSTALL_ROOT/current" ]] &&
     PREVIOUS_CURRENT="$(readlink -f "$INSTALL_ROOT/current" || true)"
