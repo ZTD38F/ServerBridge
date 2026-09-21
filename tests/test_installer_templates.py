@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 text = Path("install.sh").read_text(encoding="utf-8")
@@ -12,13 +11,15 @@ template = text[start:end]
 
 problems: list[str] = []
 
-# Positional arguments belong to generated serverbridgectl, not install.sh.
-if re.search(r"(?<!\\\\)\\$\\{[12](?::-[^}]*)?\\}", template):
-    problems.append("unescaped positional parameter in serverbridgectl template")
+for number in ("1", "2"):
+    raw = "${" + number
+    escaped = "\\${" + number
+    if raw in template.replace(escaped, ""):
+        problems.append(f"unescaped positional parameter ${number} in generated CLI")
 
-# Command substitutions must survive installer rendering too.
-if re.search(r"(?<!\\\\)\\$\\(", template):
-    problems.append("unescaped command substitution in serverbridgectl template")
+# Every command substitution inside this heredoc belongs to the generated CLI.
+if "$(" in template.replace("\\$(", ""):
+    problems.append("unescaped command substitution in generated CLI")
 
 assert not problems, "; ".join(problems)
 
