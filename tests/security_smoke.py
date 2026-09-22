@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -33,6 +35,23 @@ def main() -> None:
                 pass
             else:
                 raise AssertionError("protected path was readable")
+
+        env = os.environ.copy()
+        env.pop("SERVERBRIDGE_ENABLE_EXEC", None)
+        probe = r'''
+import asyncio
+from mcp import Client
+from serverbridge.server import mcp
+
+async def main():
+    async with Client(mcp, raise_exceptions=True) as client:
+        tools = await client.list_tools()
+        names = {tool.name for tool in tools.tools}
+        assert "run_command" not in names, names
+
+asyncio.run(main())
+'''
+        subprocess.run([sys.executable, "-c", probe], env=env, check=True)
     finally:
         if old_allowed is None:
             os.environ.pop("SERVERBRIDGE_ALLOWED_ROOTS", None)
