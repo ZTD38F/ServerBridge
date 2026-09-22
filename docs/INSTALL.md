@@ -10,10 +10,10 @@ Create:
 Then run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/bootstrap.sh | sudo bash
+curl -fsSL https://github.com/ZTD38F/ServerBridge/releases/latest/download/bootstrap.sh | sudo bash
 ```
 
-The bootstrap resolves the latest published GitHub Release and pins its exact Git commit before downloading the installer. One installation therefore cannot mix files from two repository states, and unreleased `main` commits are not installed by default.
+The bootstrap itself is downloaded from the latest GitHub Release asset, then resolves that release and pins its exact Git commit before downloading the installer. One installation therefore cannot mix files from two repository states, and unreleased `main` commits are not installed by default.
 
 The installer asks only for the tunnel ID and runtime key. The tunnel ID is visible; the runtime key is hidden.
 
