@@ -170,9 +170,9 @@ assert_test() {
 assert_test "current release symlink missing" test -L "$INSTALL_ROOT/current"
 assert_test "tunnel-client symlink/binary missing" test -x "$BIN_DIR/tunnel-client"
 assert_test "serverbridgectl missing" test -x /usr/local/sbin/serverbridgectl
-assert_test "runtime.env missing" test -f "$CONFIG_DIR/runtime.env"
-assert_test "serverbridge.env missing" test -f "$CONFIG_DIR/serverbridge.env"
-assert_test "tunnel profile missing" test -f "$CONFIG_DIR/tunnel-client/serverbridge.yaml"
+assert_test "runtime.env missing" sudo test -f "$CONFIG_DIR/runtime.env"
+assert_test "serverbridge.env missing" sudo test -f "$CONFIG_DIR/serverbridge.env"
+assert_test "tunnel profile missing" sudo test -f "$CONFIG_DIR/tunnel-client/serverbridge.yaml"
 
 old_current="$(readlink -f "$INSTALL_ROOT/current")"
 
