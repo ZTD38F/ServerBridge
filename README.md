@@ -2,21 +2,19 @@
 
 Connect a private Linux VPS to ChatGPT through **OpenAI Secure MCP Tunnel** — without opening an inbound MCP port.
 
-> ServerBridge's public core is read-only/diagnostic. Treat server access as sensitive infrastructure access.
-
 ## Install
 
-You need only:
+You need:
 
-1. A **Tunnel ID**: https://platform.openai.com/settings/organization/tunnels
-2. A **Runtime API key**: https://platform.openai.com/settings/organization/api-keys
-3. This command:
+1. Tunnel ID: https://platform.openai.com/settings/organization/tunnels
+2. Runtime API key: https://platform.openai.com/settings/organization/api-keys
+3. One command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/bootstrap.sh | sudo bash
 ```
 
-The installer asks:
+The installer asks only for:
 
 ```text
 Tunnel ID: tunnel_...
@@ -53,27 +51,33 @@ curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/uninstall.
 
 `server_info` · `list_files` · `read_text` · `service_status` · `service_logs` · `process_list`
 
+The public MCP core is read-only/diagnostic. Filesystem reading is intentionally broad by default. ServerBridge only protects its own tunnel/control-plane credential files unless you change `SERVERBRIDGE_PROTECTED_PATHS`.
+
 <details>
-<summary><strong>What the installer handles automatically</strong></summary>
+<summary><strong>What happens automatically</strong></summary>
 
 - Linux `amd64` / `arm64`
 - apt, dnf, yum, apk, pacman, zypper
 - systemd / OpenRC
 - Python 3.10+
-- latest stable official `openai/tunnel-client`
-- SHA-256 verification
+- OpenAI `tunnel-client v0.0.14`, pinned to the tested release
+- official SHA-256 verification
 - stdio MCP with no fixed MCP port
-- outbound proxy environment preservation
-- isolated releases
-- rollback after failed activation
-- root-only credentials
-- MCP secret-environment isolation
+- hashed Python dependency lock
+- outbound proxy/private-CA environment preservation
+- isolated releases and rollback
+- systemd service hardening
 - `tunnel-client doctor`
 - service health verification
+- CI on Python 3.10/3.12/3.13
+- Linux compatibility checks on Ubuntu, Debian, Fedora and Alpine
+- dependency vulnerability audit
+- daily upstream tunnel-client compatibility monitoring
+- release SBOM, checksums and provenance attestation
 
 </details>
 
-For details: [Installation](docs/INSTALL.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
+Details: [Installation](docs/INSTALL.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
 
 ## License
 
