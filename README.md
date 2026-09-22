@@ -53,7 +53,23 @@ curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/uninstall.
 
 `server_info` · `list_files` · `read_text` · `service_status` · `service_logs` · `process_list`
 
-The public MCP core is read-only/diagnostic. Filesystem reading is intentionally broad by default. ServerBridge only protects its own tunnel/control-plane credential files unless you change `SERVERBRIDGE_PROTECTED_PATHS`.
+Optional administration mode adds `run_command`.
+
+The public MCP core is read-only/diagnostic by default. Filesystem reading is intentionally broad by default. ServerBridge only protects its own tunnel/control-plane credential files unless you change `SERVERBRIDGE_PROTECTED_PATHS`.
+
+### Optional command execution
+
+For a private server that you explicitly want ChatGPT to administer, enable execution during install/update:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/bootstrap.sh | \
+  sudo env SERVERBRIDGE_CHANNEL=edge SERVERBRIDGE_ENABLE_EXEC=1 bash
+```
+
+Then rescan the tunnel tools in ChatGPT once. `run_command` accepts an argv array, has a bounded timeout, captures bounded stdout/stderr, kills the process group on timeout, and is disabled unless `SERVERBRIDGE_ENABLE_EXEC=1` is explicitly persisted.
+
+> [!WARNING]
+> `run_command` executes with the same OS privileges as ServerBridge. On the default systemd installation that is root. Enable it only on a private tunnel you control. Command execution is inherently capable of changing or deleting server data.
 
 <details>
 <summary><strong>What happens automatically</strong></summary>
