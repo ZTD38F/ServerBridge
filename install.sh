@@ -5,6 +5,7 @@ umask 077
 
 REPO="ZTD38F/ServerBridge"
 BRANCH="main"
+TUNNEL_CLIENT_VERSION="${SERVERBRIDGE_TUNNEL_CLIENT_VERSION:-v0.0.14}"
 
 INSTALL_ROOT="${SERVERBRIDGE_INSTALL_ROOT:-/opt/serverbridge}"
 CONFIG_DIR="${SERVERBRIDGE_CONFIG_DIR:-/etc/serverbridge}"
@@ -109,11 +110,17 @@ capture_previous_service_state() {
 
   if [[ "$INIT" == "systemd" ]] && have systemctl &&
      [[ -f /etc/systemd/system/serverbridge.service ]]; then
-    systemctl is-active --quiet serverbridge.service && PREVIOUS_SERVICE_ACTIVE=1 || true
-    systemctl is-enabled --quiet serverbridge.service && PREVIOUS_SERVICE_ENABLED=1 || true
+    if systemctl is-active --quiet serverbridge.service; then
+      PREVIOUS_SERVICE_ACTIVE=1
+    fi
+    if systemctl is-enabled --quiet serverbridge.service; then
+      PREVIOUS_SERVICE_ENABLED=1
+    fi
   elif [[ "$INIT" == "openrc" ]] && have rc-service &&
        [[ -f /etc/init.d/serverbridge ]]; then
-    rc-service serverbridge status >/dev/null 2>&1 && PREVIOUS_SERVICE_ACTIVE=1 || true
+    if rc-service serverbridge status >/dev/null 2>&1; then
+      PREVIOUS_SERVICE_ACTIVE=1
+    fi
     if have rc-update && rc-update show 2>/dev/null | grep -Eq '(^|[[:space:]])serverbridge([[:space:]]|$)'; then
       PREVIOUS_SERVICE_ENABLED=1
     fi
@@ -400,22 +407,22 @@ prereqs_ready() {
 
 check_resources() {
   local probe="$INSTALL_ROOT"
-  local fs blocks used available rest
+  local available
 
   while [[ ! -e "$probe" && "$probe" != "/" ]]; do
     probe="$(dirname "$probe")"
   done
 
   if have df && have tail; then
-    read -r fs blocks used available rest < <(df -Pk "$probe" | tail -n 1)
+    available="$(df -Pk "$probe" | tail -n 1 | awk '{print $4}')"
     if [[ "$available" =~ ^[0-9]+$ ]] && ((available < 262144)); then
       die "Not enough free disk space near $INSTALL_ROOT. Need at least 256 MiB free."
     fi
   fi
 
   if [[ -r /proc/meminfo ]]; then
-    local key value unit mem_available=""
-    while read -r key value unit; do
+    local key value mem_available=""
+    while read -r key value _; do
       if [[ "$key" == "MemAvailable:" ]]; then
         mem_available="$value"
         break
@@ -458,15 +465,6 @@ network_preflight() {
     die "Cannot reach PyPI over HTTPS."
   curl -sSIL --max-time 15 https://api.openai.com/ >/dev/null ||
     die "Cannot reach api.openai.com over HTTPS."
-}
-
-latest_tunnel_tag() {
-  local effective tag
-  effective="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/openai/tunnel-client/releases/latest)"
-  tag="${effective##*/}"
-  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
-    die "Could not determine stable tunnel-client release tag: $tag"
-  printf '%s' "$tag"
 }
 
 detect_local_source() {
@@ -857,7 +855,7 @@ if have curl; then
   fi
 else
   ((DRY_RUN)) || die "curl is unavailable."
-  TUNNEL_TAG="latest-stable"
+  TUNNEL_TAG="$TUNNEL_CLIENT_VERSION"
   [[ -n "$SOURCE_DIR_OVERRIDE" ]] || SOURCE_SHA="unresolved-in-dry-run"
   warn "curl is unavailable; live network checks were skipped in dry-run."
 fi
