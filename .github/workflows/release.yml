@@ -77,6 +77,8 @@ jobs:
             ServerBridge-${{ steps.version.outputs.tag }}.tar.gz
             ServerBridge-${{ steps.version.outputs.tag }}.zip
             ServerBridge-${{ steps.version.outputs.tag }}.sbom.cdx.json
+            bootstrap.sh
+            update.sh
             SHA256SUMS.txt
 
       - name: Create GitHub release
