@@ -10,10 +10,10 @@ Create:
 Then run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/bootstrap.sh | sudo bash
+curl -fsSL https://github.com/ZTD38F/ServerBridge/releases/latest/download/bootstrap.sh | sudo bash
 ```
 
-The bootstrap pins one Git commit before downloading the installer, so one installation cannot accidentally mix files from two different repository states.
+The bootstrap itself is downloaded from the latest GitHub Release asset, then resolves that release and pins its exact Git commit before downloading the installer. One installation therefore cannot mix files from two repository states, and unreleased `main` commits are not installed by default.
 
 The installer asks only for the tunnel ID and runtime key. The tunnel ID is visible; the runtime key is hidden.
 
@@ -70,3 +70,16 @@ SERVERBRIDGE_PROTECTED_PATHS=/etc/serverbridge/runtime.env
 ```
 
 The tested tunnel-client version is pinned by default. The daily upstream workflow reports compatibility with newer OpenAI releases before the pin is changed.
+
+
+## Update channel
+
+Normal installs and updates use the stable channel:
+
+```bash
+sudo serverbridgectl update
+```
+
+For deliberate development testing, invoke `bootstrap.sh` with the environment variable `SERVERBRIDGE_CHANNEL=edge`.
+
+`edge` pins the current `main` commit for that one run; it still does not mix multiple commits within an installation.

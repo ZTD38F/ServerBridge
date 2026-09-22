@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 REPO="ZTD38F/ServerBridge"
-BRANCH="main"
 TMP="$(mktemp -d /tmp/serverbridge-update.XXXXXX)"
-trap 'rm -rf "$TMP"' EXIT
+trap 'rm -rf "$TMP"' EXIT INT TERM
 
-curl -fL --retry 4 --retry-delay 2 --connect-timeout 15   "https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz"   -o "$TMP/source.tar.gz"
+curl -fsSL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 60 \
+  "https://github.com/$REPO/releases/latest/download/bootstrap.sh" \
+  -o "$TMP/bootstrap.sh"
 
-mkdir -p "$TMP/source"
-tar -xzf "$TMP/source.tar.gz" -C "$TMP/source" --strip-components=1
-
-SERVERBRIDGE_SOURCE_DIR="$TMP/source" bash "$TMP/source/install.sh" "$@"
+chmod 700 "$TMP/bootstrap.sh"
+bash "$TMP/bootstrap.sh" "$@"

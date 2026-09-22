@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1 — 2026-09-22
+
+Stable-channel patch:
+
+- made the default bootstrap resolve the latest published GitHub Release instead of unreleased `main`;
+- retained an explicit `SERVERBRIDGE_CHANNEL=edge` mode for development testing;
+- made `update.sh` route through the same stable bootstrap;
+- added `sudo serverbridgectl update`;
+- added mocked regression tests for stable/edge resolution and generated update CLI behavior;
+- kept each install pinned to one exact commit SHA.
+
 ## 0.2.0 — 2026-09-22
 
 Reliability, portability and release-engineering release:

@@ -720,12 +720,25 @@ case "\${1:-check}" in
     elif [[ "\$INIT" == openrc ]]; then exec rc-service serverbridge restart
     else echo "No supported service manager." >&2; exit 1; fi
     ;;
+  update)
+    shift
+    tmp="\$(mktemp /tmp/serverbridge-update.XXXXXX.sh)"
+    rc=0
+    curl -fsSL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 60 \
+      "https://github.com/ZTD38F/ServerBridge/releases/latest/download/bootstrap.sh" \
+      -o "\$tmp" || rc=\$?
+    if ((rc == 0)); then
+      bash "\$tmp" "\$@" || rc=\$?
+    fi
+    rm -f "\$tmp"
+    exit "\$rc"
+    ;;
   stop)
     if [[ "\$INIT" == systemd ]]; then exec systemctl stop serverbridge
     elif [[ "\$INIT" == openrc ]]; then exec rc-service serverbridge stop
     else exit 0; fi
     ;;
-  *) echo "Usage: serverbridgectl {check|status|doctor|logs [N]|restart|stop}" >&2; exit 2 ;;
+  *) echo "Usage: serverbridgectl {check|status|doctor|logs [N]|restart|update|stop}" >&2; exit 2 ;;
 esac
 EOF
   chmod 755 /usr/local/sbin/serverbridgectl
