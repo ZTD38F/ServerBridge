@@ -13,30 +13,29 @@ Then run:
 curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/bootstrap.sh | sudo bash
 ```
 
-The installer asks only for the tunnel ID and runtime key.
+The bootstrap pins one Git commit before downloading the installer, so one installation cannot accidentally mix files from two different repository states.
 
-The tunnel ID is visible while typing. The runtime key is hidden.
+The installer asks only for the tunnel ID and runtime key. The tunnel ID is visible; the runtime key is hidden.
 
 ## What happens automatically
 
-ServerBridge:
-
-1. Checks the Linux host and dependencies.
-2. Verifies network access.
-3. Downloads the latest stable official `openai/tunnel-client` and checks SHA-256.
-4. Installs ServerBridge into an isolated release directory.
-5. Creates the stdio tunnel profile and autostart service.
-6. Runs `doctor`, starts the service, and verifies it stays healthy.
+1. Check Linux, architecture, resources and prerequisites.
+2. Check outbound HTTPS.
+3. Install the tested OpenAI `tunnel-client v0.0.14` and verify its official SHA-256.
+4. Install Python runtime dependencies from the hashed `requirements.lock`.
+5. Prepare an isolated ServerBridge release.
+6. Create the stdio tunnel profile and autostart service.
+7. Run `doctor`, then start and verify the service.
 
 No inbound MCP port is opened.
 
-## Check the installation
+## Check
 
 ```bash
 sudo serverbridgectl check
 ```
 
-For more detail:
+More detail:
 
 ```bash
 sudo serverbridgectl status
@@ -46,23 +45,28 @@ sudo serverbridgectl logs 200
 
 ## Dry-run
 
+From a clone:
+
 ```bash
 sudo SERVERBRIDGE_TUNNEL_ID=tunnel_example \
   CONTROL_PLANE_API_KEY=sk-test-placeholder \
   ./install.sh --dry-run
 ```
 
+A local checkout is used as the source tree; the installer does not silently replace it with `main`.
+
 ## Proxies and private CA
 
-If the installer is started with standard proxy variables such as `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, or tunnel-client CA variables, ServerBridge preserves them in a root-only network environment file for the long-running service.
+Common proxy and tunnel-client CA variables are preserved into root-only service environment files so the long-running service behaves like the installer session.
 
-## Non-interactive installation
+## Advanced overrides
+
+Use only when intentionally testing:
 
 ```bash
-sudo env \
-  SERVERBRIDGE_TUNNEL_ID='tunnel_...' \
-  CONTROL_PLANE_API_KEY='...' \
-  bash install.sh
+SERVERBRIDGE_TUNNEL_CLIENT_VERSION=v0.0.14
+SERVERBRIDGE_ALLOWED_ROOTS=/
+SERVERBRIDGE_PROTECTED_PATHS=/etc/serverbridge/runtime.env
 ```
 
-For normal use, the interactive hidden key prompt is preferable because it avoids placing the key directly in shell history.
+The tested tunnel-client version is pinned by default. The daily upstream workflow reports compatibility with newer OpenAI releases before the pin is changed.
