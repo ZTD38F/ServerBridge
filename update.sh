@@ -11,4 +11,4 @@ curl -fL --retry 4 --retry-delay 2 --connect-timeout 15   "https://github.com/$R
 mkdir -p "$TMP/source"
 tar -xzf "$TMP/source.tar.gz" -C "$TMP/source" --strip-components=1
 
-bash "$TMP/source/install.sh" "$@"
+SERVERBRIDGE_SOURCE_DIR="$TMP/source" bash "$TMP/source/install.sh" "$@"

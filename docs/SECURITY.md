@@ -1,25 +1,47 @@
 # Security
 
-ServerBridge is an administration bridge, not a sandbox.
+ServerBridge is an infrastructure inspection bridge, not a sandbox.
 
-## Trust model
+## Read model
 
-Treat access to the connected MCP app like privileged server access. Keep the tunnel private to the intended account/workspace.
+The public MCP core is read-only/diagnostic, but filesystem reading is intentionally broad by default because ServerBridge is designed as a universal server inspector.
+
+ServerBridge protects only its own control-plane credential/configuration paths by default:
+
+- runtime API key file;
+- preserved network environment;
+- tunnel-client profile directory.
+
+Change `SERVERBRIDGE_PROTECTED_PATHS` if you want a narrower or completely unrestricted read model.
 
 ## Runtime secrets
 
 - Runtime API key input is hidden.
-- There is no `--api-key` installer argument.
-- Protected config is root-readable only.
-- The MCP child launcher unsets OpenAI control-plane secrets before starting Python.
-- Built-in process inspection does not expose process environments.
-
-If a secret is ever printed into a chat, log, shell history, or screenshot, rotate it.
+- There is no `--api-key` CLI option.
+- Runtime configuration is root-readable only.
+- The MCP child explicitly drops OpenAI control-plane credentials.
+- Process inspection does not return process environment variables.
 
 ## Network
 
-OpenAI Secure MCP Tunnel uses outbound HTTPS. ServerBridge itself does not require a public inbound MCP port.
+The tunnel uses outbound HTTPS. ServerBridge exposes no inbound MCP port.
 
-## File scope
+## systemd hardening
 
-The MCP core uses `SERVERBRIDGE_ALLOWED_ROOTS`. The default is `/` for a universal server inspector. Restrict it in `/etc/serverbridge/serverbridge.env` when broad filesystem visibility is not required.
+The generated unit uses conservative hardening that does not remove broad server read access:
+
+- `NoNewPrivileges`
+- private temporary directory and devices
+- kernel/module/control-group write protections
+- SUID/SGID restrictions
+- strict service umask
+
+These controls reduce accidental privilege escalation while preserving ServerBridge's inspection purpose.
+
+## Supply chain
+
+- tunnel-client is pinned to the tested release and verified with OpenAI's published SHA-256 manifest;
+- Python runtime dependencies are fully locked with hashes;
+- GitHub Actions are pinned to commit SHAs;
+- CI runs dependency vulnerability auditing;
+- releases publish checksums, CycloneDX SBOM and provenance attestations.

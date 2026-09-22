@@ -1,33 +1,52 @@
 # Troubleshooting
 
-Start with:
+Start here:
+
+```bash
+sudo serverbridgectl check
+```
+
+If it fails:
 
 ```bash
 sudo serverbridgectl doctor
-sudo serverbridgectl status
 sudo serverbridgectl logs 200
 ```
 
-## Runtime key is missing
+## Tunnel not visible in ChatGPT
 
-Create a runtime API key at:
+Check that:
+
+- ServerBridge is running;
+- the tunnel is associated with the correct ChatGPT workspace/account;
+- your OpenAI principal has Tunnels Read + Use.
+
+Then open:
+
+https://chatgpt.com/#settings/Connectors
+
+## Runtime key problem
+
+Create a runtime API key:
 
 https://platform.openai.com/settings/organization/api-keys
 
 Then rerun the installer.
 
-## Cannot reach OpenAI/GitHub/PyPI
+## Network problem
 
-The VPS needs working DNS, CA certificates, and outbound TCP 443.
+The VPS needs working DNS and outbound HTTPS (TCP 443) to OpenAI, GitHub and PyPI.
 
-## Python is older than 3.10
+ServerBridge preserves common proxy environment variables during installation.
 
-ServerBridge stops instead of compiling an arbitrary Python version from source. Upgrade the OS/Python source and rerun.
+## Python is too old
 
-## No systemd/OpenRC
+Python 3.10+ is required. ServerBridge stops before activation instead of compiling an arbitrary Python version from source.
 
-Installation can prepare the app/profile, but ServerBridge will explicitly report that automatic 24/7 supervision could not be configured.
+## Existing ServerBridge path is rejected
 
-## Existing /opt/serverbridge is rejected
+This is deliberate. The installer refuses to overwrite directories or service files that are not marked as ServerBridge-managed.
 
-The installer only manages that directory when the ServerBridge marker exists. This prevents accidental replacement of an unrelated application.
+## No systemd or OpenRC
+
+The app can still be prepared and validated, but ServerBridge does not claim automatic 24/7 supervision on an unknown init system.

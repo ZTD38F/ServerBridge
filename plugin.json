@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "serverbridge",
-  "version": "0.1.0",
-  "description": "Administer a private Linux server through an OpenAI Secure MCP Tunnel.",
+  "version": "0.2.0",
+  "description": "Inspect a private Linux server through an OpenAI Secure MCP Tunnel.",
   "author": {"name": "ZTD38F", "url": "https://github.com/ZTD38F"},
   "homepage": "https://github.com/ZTD38F/ServerBridge",
   "repository": "https://github.com/ZTD38F/ServerBridge",

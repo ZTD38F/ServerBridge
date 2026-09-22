@@ -1,47 +1,72 @@
 # Installation
 
-## Inputs you need
+## Before you start
 
-ServerBridge requires two OpenAI values:
+Create:
 
-1. `CONTROL_PLANE_TUNNEL_ID` — your `tunnel_...` identifier.
-2. `CONTROL_PLANE_API_KEY` — the runtime API key used by `tunnel-client`.
+- Tunnel ID: https://platform.openai.com/settings/organization/tunnels
+- Runtime API key: https://platform.openai.com/settings/organization/api-keys
 
-Setup pages:
-
-- https://platform.openai.com/settings/organization/tunnels
-- https://platform.openai.com/settings/organization/api-keys
-- https://chatgpt.com/#settings/Connectors
-
-## One-line install
+Then run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/bootstrap.sh | sudo bash
 ```
 
-The tunnel ID is intentionally visible. The runtime key is read with terminal echo disabled.
+The bootstrap pins one Git commit before downloading the installer, so one installation cannot accidentally mix files from two different repository states.
 
-## Non-interactive automation
+The installer asks only for the tunnel ID and runtime key. The tunnel ID is visible; the runtime key is hidden.
+
+## What happens automatically
+
+1. Check Linux, architecture, resources and prerequisites.
+2. Check outbound HTTPS.
+3. Install the tested OpenAI `tunnel-client v0.0.14` and verify its official SHA-256.
+4. Install Python runtime dependencies from the hashed `requirements.lock`.
+5. Prepare an isolated ServerBridge release.
+6. Create the stdio tunnel profile and autostart service.
+7. Run `doctor`, then start and verify the service.
+
+No inbound MCP port is opened.
+
+## Check
 
 ```bash
-sudo env \
-  SERVERBRIDGE_TUNNEL_ID='tunnel_...' \
-  CONTROL_PLANE_API_KEY='...' \
-  bash install.sh
+sudo serverbridgectl check
 ```
 
-For normal interactive use, prefer the hidden prompt so the key is not saved in shell history.
+More detail:
 
-## Phases
+```bash
+sudo serverbridgectl status
+sudo serverbridgectl doctor
+sudo serverbridgectl logs 200
+```
 
-1. Validate credentials.
-2. Detect Linux distribution, architecture, package manager and init system.
-3. Install/validate prerequisites.
-4. Verify outbound HTTPS.
-5. Resolve and checksum-verify the latest stable OpenAI tunnel-client.
-6. Prepare an isolated ServerBridge Python release.
-7. Create the stdio MCP tunnel profile.
-8. Run `tunnel-client doctor --explain`.
-9. Configure systemd/OpenRC, start, and verify.
+## Dry-run
 
-The MCP server is stdio, so no inbound MCP port is opened.
+From a clone:
+
+```bash
+sudo SERVERBRIDGE_TUNNEL_ID=tunnel_example \
+  CONTROL_PLANE_API_KEY=sk-test-placeholder \
+  ./install.sh --dry-run
+```
+
+A local checkout is used as the source tree; the installer does not silently replace it with `main`.
+
+## Proxies and private CA
+
+Common proxy and tunnel-client CA variables are preserved into root-only service environment files so the long-running service behaves like the installer session.
+
+## Advanced overrides
+
+Use only when intentionally testing:
+
+```bash
+SERVERBRIDGE_TUNNEL_CLIENT_VERSION=v0.0.14
+SERVERBRIDGE_ALLOWED_ROOTS=/
+SERVERBRIDGE_PROTECTED_PATHS=/etc/serverbridge/runtime.env
+```
+
+The tested tunnel-client version is pinned by default. The daily upstream workflow reports compatibility with newer OpenAI releases before the pin is changed.
