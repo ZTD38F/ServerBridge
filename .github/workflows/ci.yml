@@ -155,6 +155,6 @@ jobs:
               set -eu
               sh -c "$PREPARE"
               bash -n bootstrap.sh install.sh update.sh uninstall.sh
-              python3 -m compileall -q serverbridge tests
+              PYTHONPYCACHEPREFIX=/tmp/serverbridge-pycache python3 -m compileall -q serverbridge tests
               bash ./install.sh --dry-run
             '
