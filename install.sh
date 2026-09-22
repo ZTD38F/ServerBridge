@@ -621,8 +621,9 @@ write_config() {
   [[ -n "$exec_enabled" ]] || exec_enabled=0
   [[ "$exec_enabled" =~ ^(0|1|true|false|yes|no|on|off)$ ]] || die "SERVERBRIDGE_ENABLE_EXEC must be 0/1 or a boolean word."
   [[ -n "$exec_timeout" ]] || exec_timeout=900
-  [[ "$exec_timeout" =~ ^[0-9]+$ ]] && ((exec_timeout >= 1 && exec_timeout <= 3600)) ||
+  if [[ ! "$exec_timeout" =~ ^[0-9]+$ ]] || ((exec_timeout < 1 || exec_timeout > 3600)); then
     die "SERVERBRIDGE_EXEC_MAX_TIMEOUT must be 1-3600 seconds."
+  fi
 
   cat > "$CONFIG_DIR/runtime.env.new" <<EOF
 CONTROL_PLANE_API_KEY=$RUNTIME_KEY
