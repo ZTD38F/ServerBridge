@@ -751,6 +751,21 @@ Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=30s
 KillMode=mixed
+UMask=0077
+
+# Conservative service hardening: keep server reads available while blocking
+# common privilege-escalation and kernel-write paths.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
 
 [Install]
 WantedBy=multi-user.target
