@@ -844,7 +844,9 @@ detect_local_source
 
 if have curl; then
   network_preflight
-  TUNNEL_TAG="$(latest_tunnel_tag)"
+  TUNNEL_TAG="$TUNNEL_CLIENT_VERSION"
+  [[ "$TUNNEL_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+    die "SERVERBRIDGE_TUNNEL_CLIENT_VERSION must look like vX.Y.Z."
 
   if [[ -z "$SOURCE_DIR_OVERRIDE" ]]; then
     if [[ -z "$SOURCE_SHA" ]]; then
@@ -905,8 +907,17 @@ else
   rm -rf "$NEW_RELEASE/.git" || true
 
   "$PYTHON_BIN" -m venv "$NEW_RELEASE/.venv"
-  "$NEW_RELEASE/.venv/bin/python" -m pip install     --disable-pip-version-check --no-input --retries 4 --timeout 30     --upgrade "pip<26" >/dev/null
-  "$NEW_RELEASE/.venv/bin/python" -m pip install     --disable-pip-version-check --no-input --retries 4 --timeout 30     "$NEW_RELEASE" >/dev/null
+  [[ -s "$NEW_RELEASE/requirements.lock" ]] ||
+    die "requirements.lock is missing from the release."
+
+  "$NEW_RELEASE/.venv/bin/python" -m pip install \
+    --disable-pip-version-check --no-input --retries 4 --timeout 30 \
+    --require-hashes -r "$NEW_RELEASE/requirements.lock" >/dev/null
+
+  "$NEW_RELEASE/.venv/bin/python" -m pip install \
+    --disable-pip-version-check --no-input --no-deps \
+    "$NEW_RELEASE" >/dev/null
+
   "$NEW_RELEASE/.venv/bin/python" -c 'import mcp, serverbridge; print(serverbridge.__version__)' >/dev/null
 
   TUNNEL_SOURCE="$(download_tunnel_client "$TUNNEL_TAG")"
