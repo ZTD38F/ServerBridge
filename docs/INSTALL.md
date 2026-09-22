@@ -80,11 +80,6 @@ Normal installs and updates use the stable channel:
 sudo serverbridgectl update
 ```
 
-For deliberate development testing only:
-
-```bash
-SERVERBRIDGE_CHANNEL=edge curl -fsSL \
-  https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/bootstrap.sh | sudo -E bash
-```
+For deliberate development testing, invoke `bootstrap.sh` with the environment variable `SERVERBRIDGE_CHANNEL=edge`.
 
 `edge` pins the current `main` commit for that one run; it still does not mix multiple commits within an installation.
