@@ -38,8 +38,10 @@ sudo serverbridgectl restart
 Update:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/update.sh | sudo bash
+sudo serverbridgectl update
 ```
+
+The normal install/update channel is **stable**: it resolves the latest published GitHub Release, not unreleased commits from `main`.
 
 Uninstall:
 
@@ -73,6 +75,7 @@ The public MCP core is read-only/diagnostic. Filesystem reading is intentionally
 - Linux compatibility checks on Ubuntu, Debian, Fedora and Alpine
 - dependency vulnerability audit
 - daily upstream tunnel-client compatibility monitoring
+- stable-by-default release channel; explicit `SERVERBRIDGE_CHANNEL=edge` for development testing
 - release SBOM, checksums and provenance attestation
 
 </details>
