@@ -152,6 +152,7 @@ common_env=(
   "SERVERBRIDGE_BIN_DIR=$BIN_DIR"
   "SERVERBRIDGE_TUNNEL_ID=tunnel_0123456789abcdef"
   "CONTROL_PLANE_API_KEY=sk-test-placeholder"
+  "SERVERBRIDGE_TUNNEL_CLIENT_VERSION=v0.0.0"
 )
 
 echo "== clean install =="
