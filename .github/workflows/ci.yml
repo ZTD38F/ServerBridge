@@ -21,6 +21,7 @@ jobs:
           bash -n update.sh
           bash -n uninstall.sh
           bash -n scripts/check-upstream-tunnel.sh
+          bash -n tests/bootstrap_channels.sh
 
       - name: ShellCheck
         run: |
@@ -28,13 +29,16 @@ jobs:
             sudo apt-get -o DPkg::Lock::Timeout=180 update -qq
             sudo apt-get -o DPkg::Lock::Timeout=180 install -y shellcheck
           fi
-          shellcheck -x bootstrap.sh install.sh update.sh uninstall.sh scripts/check-upstream-tunnel.sh
+          shellcheck -x bootstrap.sh install.sh update.sh uninstall.sh scripts/check-upstream-tunnel.sh tests/bootstrap_channels.sh
 
       - name: Help path
         run: bash install.sh --help >/dev/null
 
       - name: Generated CLI template
         run: python tests/test_installer_templates.py
+
+      - name: Bootstrap stable/edge channels
+        run: bash tests/bootstrap_channels.sh
 
       - name: Installer dry-run
         run: |
