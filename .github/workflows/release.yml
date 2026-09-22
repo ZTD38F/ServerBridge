@@ -37,17 +37,21 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Stop if release already exists
+      - name: Check existing release
+        id: release_check
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "Release $TAG already exists."
-            exit 0
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Audit and create SBOM
+        if: steps.release_check.outputs.exists != 'true'
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
@@ -55,6 +59,7 @@ jobs:
           pip-audit             --strict             -r requirements.lock             --format cyclonedx-json             --output "ServerBridge-$TAG.sbom.cdx.json"
 
       - name: Build source archives
+        if: steps.release_check.outputs.exists != 'true'
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
@@ -65,6 +70,7 @@ jobs:
           sha256sum             "ServerBridge-$TAG.tar.gz"             "ServerBridge-$TAG.zip"             "ServerBridge-$TAG.sbom.cdx.json"             > SHA256SUMS.txt
 
       - name: Attest release artifacts
+        if: steps.release_check.outputs.exists != 'true'
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: |
@@ -74,6 +80,7 @@ jobs:
             SHA256SUMS.txt
 
       - name: Create GitHub release
+        if: steps.release_check.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
