@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
+
+os.environ["SERVERBRIDGE_ENABLE_EXEC"] = "1"
 
 from mcp import Client
 
@@ -13,6 +16,7 @@ EXPECTED_TOOLS = {
     "service_status",
     "service_logs",
     "process_list",
+    "run_command",
 }
 
 
@@ -29,6 +33,7 @@ async def main() -> None:
             ("list_files", {"path": ".", "limit": 10}),
             ("read_text", {"path": "README.md", "max_bytes": 4096}),
             ("process_list", {"limit": 5}),
+            ("run_command", {"argv": ["python", "-c", "print('bridge-exec-ok')"], "cwd": ".", "timeout_seconds": 10}),
         ]
 
         for name, arguments in calls:
