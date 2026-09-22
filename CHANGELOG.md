@@ -1,21 +1,34 @@
 # Changelog
 
-## 0.2.0 — 2026-09-21
+## 0.2.0 — 2026-09-22
 
-Reliability and UX release:
+Reliability, portability and release-engineering release:
 
-- reduced the installer UI from nine stages to five;
-- simplified README and post-install instructions;
+- reduced installer UI from nine stages to five;
+- added one-command commit-pinned bootstrap;
 - added `serverbridgectl check`;
-- hidden successful `doctor` verbosity while preserving failure diagnostics;
-- activated rollback before the first ServerBridge filesystem mutation;
-- expanded rollback to network/proxy config and management markers;
-- added foreign config/state collision protection;
-- preserved common proxy/private-CA environment settings for the service;
-- added pip retry/timeout handling;
-- added a real MCP protocol smoke test in CI;
-- added installer dry-run CI coverage;
-- aligned plugin metadata with the read-only public core.
+- suppressed successful diagnostic noise while preserving failure detail;
+- added early transactional rollback and restoration of previous service state;
+- added real clean-install → failed-update → rollback integration testing;
+- pinned the tested OpenAI `tunnel-client` to v0.0.14;
+- retained a daily compatibility check against future tunnel-client releases;
+- added SHA-256 verification and tunnel-client CLI compatibility preflight;
+- pinned the full Python runtime dependency graph with hashes from the Python 3.10 baseline;
+- added Python 3.10 / 3.12 / 3.13 protocol tests;
+- added Ubuntu 24.04, Debian 12, Fedora and Alpine compatibility jobs;
+- added `pip-audit` dependency vulnerability checking;
+- pinned GitHub Actions to immutable commit SHAs;
+- added automatic release archives, SHA256SUMS, CycloneDX SBOM and build-provenance attestation;
+- added apt/dpkg lock waiting, download retries and basic disk/RAM preflight;
+- preserved common proxy/private-CA settings for the long-running service;
+- made proxy persistence safe for both systemd and shell sourcing;
+- added conservative systemd hardening without removing broad inspection access;
+- made filesystem reading bounded and large-file hashing capped;
+- made process inspection portable through Linux `/proc` without exposing argv/environment;
+- added OpenRC-aware service inspection;
+- kept broad server file inspection by default while protecting ServerBridge's own control-plane credentials;
+- added Dependabot monitoring for Python and GitHub Actions;
+- aligned README, plugin metadata, security docs and contribution workflow with the actual read-only public core.
 
 ## 0.1.0 — 2026-09-21
 
