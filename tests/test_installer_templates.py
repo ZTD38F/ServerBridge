@@ -26,5 +26,8 @@ assert not problems, "; ".join(problems)
 assert 'case "\\${1:-check}" in' in template
 assert 'log="\\$(mktemp /tmp/serverbridge-doctor.XXXXXX)"' in template
 assert '"\\${2:-100}"' in template
+assert "  update)" in template
+assert 'tmp="\\$(mktemp /tmp/serverbridge-update.XXXXXX.sh)"' in template
+assert 'bash "\\$tmp" "\\$@" || rc=\\$?' in template
 
 print("installer template expansion test passed")
