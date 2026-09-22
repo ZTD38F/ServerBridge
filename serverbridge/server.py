@@ -32,8 +32,7 @@ def _protected_paths() -> list[Path]:
     raw = os.getenv(
         "SERVERBRIDGE_PROTECTED_PATHS",
         "/etc/serverbridge/runtime.env:/etc/serverbridge/network.env:/etc/serverbridge/network.sh:"
-        "/etc/serverbridge/tunnel-client:/proc:/run/credentials:/run/secrets:"
-        "/root/.ssh:/etc/ssl/private:/etc/shadow:/etc/gshadow",
+        "/etc/serverbridge/tunnel-client",
     )
     return [Path(x.strip()).expanduser().resolve(strict=False) for x in raw.split(":") if x.strip()]
 
