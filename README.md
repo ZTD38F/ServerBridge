@@ -11,7 +11,7 @@ You need:
 3. One command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/bootstrap.sh | sudo bash
+curl -fsSL https://github.com/ZTD38F/ServerBridge/releases/latest/download/bootstrap.sh | sudo bash
 ```
 
 The installer asks only for:
