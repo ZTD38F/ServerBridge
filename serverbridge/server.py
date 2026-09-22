@@ -8,6 +8,9 @@ import pwd
 import shutil
 import socket
 import subprocess
+import signal
+import tempfile
+import time
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -20,6 +23,9 @@ mcp = MCPServer("ServerBridge")
 
 MAX_CAPTURE = int(os.getenv("SERVERBRIDGE_MAX_CAPTURE_BYTES", "65536"))
 MAX_HASH_BYTES = int(os.getenv("SERVERBRIDGE_MAX_HASH_BYTES", str(64 * 1024 * 1024)))
+EXEC_ENABLED = os.getenv("SERVERBRIDGE_ENABLE_EXEC", "0").strip().lower() in {"1", "true", "yes", "on"}
+EXEC_MAX_TIMEOUT = max(1, min(int(os.getenv("SERVERBRIDGE_EXEC_MAX_TIMEOUT", "900")), 3600))
+
 
 
 def _allowed_roots() -> list[Path]:
@@ -78,6 +84,42 @@ def _init_system() -> str:
     if shutil.which("rc-service"):
         return "openrc"
     return "unknown"
+
+
+def _command_argv(argv: list[str]) -> list[str]:
+    if not isinstance(argv, list) or not argv or len(argv) > 128:
+        raise ValueError("argv must contain 1-128 arguments")
+    normalized: list[str] = []
+    total = 0
+    for item in argv:
+        if not isinstance(item, str) or not item or "\x00" in item:
+            raise ValueError("argv contains an invalid argument")
+        encoded = item.encode("utf-8", errors="strict")
+        if len(encoded) > 8192:
+            raise ValueError("one argv item is too large")
+        total += len(encoded)
+        normalized.append(item)
+    if total > 65536:
+        raise ValueError("argv is too large")
+    return normalized
+
+
+def _exec_environment() -> dict[str, str]:
+    allowed = {
+        "PATH", "HOME", "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR",
+        "USER", "LOGNAME", "SHELL", "TZ",
+        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+    }
+    return {key: value for key, value in os.environ.items() if key in allowed}
+
+
+def _read_capture(handle: Any) -> tuple[str, bool]:
+    handle.seek(0)
+    data = handle.read(MAX_CAPTURE + 1)
+    truncated = len(data) > MAX_CAPTURE
+    visible = data[:MAX_CAPTURE]
+    return visible.decode("utf-8", errors="replace") + ("\n…[truncated]" if truncated else ""), truncated
 
 
 @mcp.tool()
@@ -321,6 +363,64 @@ def _read_process(pid: int) -> dict[str, Any] | None:
         }
     except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError):
         return None
+
+
+if EXEC_ENABLED:
+    @mcp.tool()
+    def run_command(argv: list[str], cwd: str = "/", timeout_seconds: int = 120) -> dict[str, Any]:
+        """Run one argv-form command on the private server. Opt-in only; disabled unless SERVERBRIDGE_ENABLE_EXEC=1."""
+        command = _command_argv(argv)
+        target = _resolve_allowed(cwd)
+        if not target.is_dir():
+            raise NotADirectoryError(str(target))
+
+        timeout = max(1, min(int(timeout_seconds), EXEC_MAX_TIMEOUT))
+        started = time.monotonic()
+        timed_out = False
+
+        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+            proc = subprocess.Popen(
+                command,
+                cwd=target,
+                stdin=subprocess.DEVNULL,
+                stdout=stdout_file,
+                stderr=stderr_file,
+                env=_exec_environment(),
+                start_new_session=True,
+                close_fds=True,
+            )
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    proc.wait(timeout=5)
+
+            stdout, stdout_truncated = _read_capture(stdout_file)
+            stderr, stderr_truncated = _read_capture(stderr_file)
+
+        return {
+            "argv": command,
+            "cwd": str(target),
+            "exit_code": None if timed_out else proc.returncode,
+            "timed_out": timed_out,
+            "timeout_seconds": timeout,
+            "duration_seconds": round(time.monotonic() - started, 3),
+            "stdout": stdout,
+            "stderr": stderr,
+            "stdout_truncated": stdout_truncated,
+            "stderr_truncated": stderr_truncated,
+        }
 
 
 @mcp.tool()
