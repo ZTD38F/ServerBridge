@@ -158,16 +158,28 @@ common_env=(
 echo "== clean install =="
 sudo env "${common_env[@]}" bash ./install.sh --no-start
 
-test -L "$INSTALL_ROOT/current"
-test -x "$BIN_DIR/tunnel-client"
-test -x /usr/local/sbin/serverbridgectl
-test -f "$CONFIG_DIR/runtime.env"
-test -f "$CONFIG_DIR/serverbridge.env"
-test -f "$CONFIG_DIR/tunnel-client/serverbridge.yaml"
+assert_test() {
+  local message="$1"
+  shift
+  if ! "$@"; then
+    echo "ASSERTION FAILED: $message" >&2
+    exit 1
+  fi
+}
+
+assert_test "current release symlink missing" test -L "$INSTALL_ROOT/current"
+assert_test "tunnel-client symlink/binary missing" test -x "$BIN_DIR/tunnel-client"
+assert_test "serverbridgectl missing" test -x /usr/local/sbin/serverbridgectl
+assert_test "runtime.env missing" test -f "$CONFIG_DIR/runtime.env"
+assert_test "serverbridge.env missing" test -f "$CONFIG_DIR/serverbridge.env"
+assert_test "tunnel profile missing" test -f "$CONFIG_DIR/tunnel-client/serverbridge.yaml"
 
 old_current="$(readlink -f "$INSTALL_ROOT/current")"
 
-sudo env "${common_env[@]}" /usr/local/sbin/serverbridgectl doctor >/dev/null
+if ! sudo env "${common_env[@]}" /usr/local/sbin/serverbridgectl doctor; then
+  echo "ASSERTION FAILED: serverbridgectl doctor failed after clean install" >&2
+  exit 1
+fi
 
 echo "== forced failed update =="
 set +e
