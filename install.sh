@@ -612,6 +612,18 @@ write_config() {
   touch "$CONFIG_DIR/.serverbridge-managed"
   chmod 600 "$CONFIG_DIR/.serverbridge-managed"
 
+  local exec_enabled="${SERVERBRIDGE_ENABLE_EXEC:-}"
+  local exec_timeout="${SERVERBRIDGE_EXEC_MAX_TIMEOUT:-}"
+  if [[ -r "$CONFIG_DIR/serverbridge.env" ]]; then
+    [[ -n "$exec_enabled" ]] || exec_enabled="$(grep -m1 '^SERVERBRIDGE_ENABLE_EXEC=' "$CONFIG_DIR/serverbridge.env" 2>/dev/null | cut -d= -f2- || true)"
+    [[ -n "$exec_timeout" ]] || exec_timeout="$(grep -m1 '^SERVERBRIDGE_EXEC_MAX_TIMEOUT=' "$CONFIG_DIR/serverbridge.env" 2>/dev/null | cut -d= -f2- || true)"
+  fi
+  [[ -n "$exec_enabled" ]] || exec_enabled=0
+  [[ "$exec_enabled" =~ ^(0|1|true|false|yes|no|on|off)$ ]] || die "SERVERBRIDGE_ENABLE_EXEC must be 0/1 or a boolean word."
+  [[ -n "$exec_timeout" ]] || exec_timeout=900
+  [[ "$exec_timeout" =~ ^[0-9]+$ ]] && ((exec_timeout >= 1 && exec_timeout <= 3600)) ||
+    die "SERVERBRIDGE_EXEC_MAX_TIMEOUT must be 1-3600 seconds."
+
   cat > "$CONFIG_DIR/runtime.env.new" <<EOF
 CONTROL_PLANE_API_KEY=$RUNTIME_KEY
 CONTROL_PLANE_TUNNEL_ID=$TUNNEL_ID
@@ -623,8 +635,8 @@ EOF
 SERVERBRIDGE_ALLOWED_ROOTS=/
 SERVERBRIDGE_MAX_CAPTURE_BYTES=65536
 SERVERBRIDGE_MAX_HASH_BYTES=67108864
-SERVERBRIDGE_ENABLE_EXEC=${SERVERBRIDGE_ENABLE_EXEC:-0}
-SERVERBRIDGE_EXEC_MAX_TIMEOUT=${SERVERBRIDGE_EXEC_MAX_TIMEOUT:-900}
+SERVERBRIDGE_ENABLE_EXEC=$exec_enabled
+SERVERBRIDGE_EXEC_MAX_TIMEOUT=$exec_timeout
 SERVERBRIDGE_PROTECTED_PATHS=$CONFIG_DIR/runtime.env:$CONFIG_DIR/network.env:$CONFIG_DIR/network.sh:$PROFILE_DIR
 EOF
   chmod 600 "$CONFIG_DIR/serverbridge.env.new"
