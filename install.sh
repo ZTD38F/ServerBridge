@@ -725,7 +725,7 @@ case "\${1:-check}" in
     tmp="\$(mktemp /tmp/serverbridge-update.XXXXXX.sh)"
     rc=0
     curl -fsSL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 60 \
-      "https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/update.sh" \
+      "https://github.com/ZTD38F/ServerBridge/releases/latest/download/bootstrap.sh" \
       -o "\$tmp" || rc=\$?
     if ((rc == 0)); then
       bash "\$tmp" "\$@" || rc=\$?
