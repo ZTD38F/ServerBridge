@@ -410,7 +410,8 @@ if EXEC_ENABLED:
             stderr, stderr_truncated = _read_capture(stderr_file)
 
         return {
-            "argv": command,
+            "executable": command[0],
+            "argument_count": len(command),
             "cwd": str(target),
             "exit_code": None if timed_out else proc.returncode,
             "timed_out": timed_out,
