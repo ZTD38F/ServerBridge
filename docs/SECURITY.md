@@ -2,41 +2,46 @@
 
 ServerBridge is an infrastructure inspection bridge, not a sandbox.
 
+## Read model
+
+The public MCP core is read-only/diagnostic, but filesystem reading is intentionally broad by default because ServerBridge is designed as a universal server inspector.
+
+ServerBridge protects only its own control-plane credential/configuration paths by default:
+
+- runtime API key file;
+- preserved network environment;
+- tunnel-client profile directory.
+
+Change `SERVERBRIDGE_PROTECTED_PATHS` if you want a narrower or completely unrestricted read model.
+
 ## Runtime secrets
 
 - Runtime API key input is hidden.
-- There is no `--api-key` installer argument.
+- There is no `--api-key` CLI option.
 - Runtime configuration is root-readable only.
 - The MCP child explicitly drops OpenAI control-plane credentials.
-- Process inspection never returns process environment variables.
-- Proxy and CA settings are persisted separately in a root-only file.
-
-If a secret appears in a chat, terminal log, screenshot, or shell history, rotate it.
+- Process inspection does not return process environment variables.
 
 ## Network
 
-OpenAI Secure MCP Tunnel uses outbound HTTPS. ServerBridge does not expose a public inbound MCP port.
+The tunnel uses outbound HTTPS. ServerBridge exposes no inbound MCP port.
 
-The installer can preserve common outbound proxy/private-CA environment variables so the service behaves the same after reboot.
+## systemd hardening
 
-## File visibility
+The generated unit uses conservative hardening that does not remove broad server read access:
 
-The public MCP core is read-only/diagnostic. `SERVERBRIDGE_ALLOWED_ROOTS` controls which filesystem roots can be inspected.
+- `NoNewPrivileges`
+- private temporary directory and devices
+- kernel/module/control-group write protections
+- SUID/SGID restrictions
+- strict service umask
 
-Default:
+These controls reduce accidental privilege escalation while preserving ServerBridge's inspection purpose.
 
-```text
-/
-```
+## Supply chain
 
-For a narrower deployment, edit:
-
-```text
-/etc/serverbridge/serverbridge.env
-```
-
-then restart:
-
-```bash
-sudo serverbridgectl restart
-```
+- tunnel-client is pinned to the tested release and verified with OpenAI's published SHA-256 manifest;
+- Python runtime dependencies are fully locked with hashes;
+- GitHub Actions are pinned to commit SHAs;
+- CI runs dependency vulnerability auditing;
+- releases publish checksums, CycloneDX SBOM and provenance attestations.
