@@ -51,11 +51,11 @@ curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/uninstall.
 
 ## Built-in tools
 
-`server_info` · `list_files` · `read_text` · `service_status` · `service_logs` · `process_list`
+Read-only core: `server_info` · `file_stat` · `list_files` · `read_file` · `read_text` · `search_files` · `search_text` · `service_status` · `service_logs` · `process_list` · `listening_ports` · `tcp_probe` · `http_probe`.
 
-Optional administration mode adds `run_command`.
+When execution is enabled, ServerBridge also exposes typed mutation tools: `write_file` · `edit_file` · `move_file` · `start_process` · `read_process_output` · `send_process_input` · `kill_process` · `list_sessions` · `service_start` · `service_stop` · `service_restart`, plus the compatibility escape hatch `run_command`.
 
-The public MCP core is read-only/diagnostic by default. Filesystem reading is intentionally broad by default. ServerBridge only protects its own tunnel/control-plane credential files unless you change `SERVERBRIDGE_PROTECTED_PATHS`.
+The public MCP core remains read-only/diagnostic by default. Filesystem reading is intentionally broad by default. ServerBridge protects its own tunnel/control-plane credential files unless you change `SERVERBRIDGE_PROTECTED_PATHS`.
 
 ### Optional command execution
 
