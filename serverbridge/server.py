@@ -176,13 +176,19 @@ def _service_action(name:str,action:str)->dict[str,Any]:
 def service_status(name:str)->dict[str,Any]:
     name=_service_name(name); init=_init_system()
     if init=='systemd':
+        active=subprocess.run(['systemctl','is-active',name],text=True,capture_output=True,check=False,timeout=20)
+        enabled=subprocess.run(['systemctl','is-enabled',name],text=True,capture_output=True,check=False,timeout=20)
+        detail=subprocess.run(['systemctl','status',name,'--no-pager','--lines=30'],text=True,capture_output=True,check=False,timeout=20)
         props=subprocess.run(['systemctl','show',name,'--no-pager','--property=ActiveState,SubState,MainPID,MemoryCurrent,NRestarts,UnitFileState'],
           text=True,capture_output=True,check=False,timeout=20)
         data={}
         for line in props.stdout.splitlines():
             k,sep,v=line.partition('=')
             if sep:data[k]=v
-        return {'service':name,'backend':'systemd','exit_code':props.returncode,'properties':data}
+        status_text,truncated=truncate((detail.stdout or '')+(detail.stderr or ''))
+        return {'service':name,'backend':'systemd','active':(active.stdout or active.stderr).strip(),
+          'enabled':(enabled.stdout or enabled.stderr).strip(),'status':status_text,'truncated':truncated,
+          'exit_code':props.returncode,'properties':data}
     if init=='openrc':
         p=subprocess.run(['rc-service',name,'status'],text=True,capture_output=True,check=False,timeout=20)
         out,tr=truncate((p.stdout or '')+(p.stderr or '')); return {'service':name,'backend':'openrc','exit_code':p.returncode,'status':out,'truncated':tr}
