@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0 — 2026-09-25
+
+Remote-operations release:
+
+- added bounded line-based `read_file` with offset/tail pagination and `file_stat`;
+- fixed `list_files(include_hidden=...)`;
+- added typed `search_files` and `search_text`;
+- added opt-in atomic `write_file`, hash-guarded `edit_file`, and `move_file`;
+- added persistent process sessions with stdin, incremental output, session listing and termination;
+- added typed service start/stop/restart controls;
+- added `listening_ports`, `tcp_probe`, and `http_probe` diagnostics;
+- expanded process metadata with thread count, start time and elapsed time;
+- added capability flags for write/process/service control, defaulting to execution mode for backward compatibility;
+- added append-only best-effort mutation audit logging and secret redaction for command/process output;
+- split reusable security/path/session logic out of the MCP registration layer;
+- expanded MCP and security smoke tests for the new operations.
+
 ## 0.2.1 — 2026-09-22
 
 Stable-channel patch:
