@@ -8,6 +8,8 @@ INSTALL_ROOT="$ROOT/install"
 CONFIG_DIR="$ROOT/config"
 STATE_DIR="$ROOT/state"
 BIN_DIR="$ROOT/bin"
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+[[ -n "$PYTHON_BIN" ]] || { echo "python3/python is required" >&2; exit 1; }
 
 cleanup() {
   sudo env     SERVERBRIDGE_INSTALL_ROOT="$INSTALL_ROOT"     SERVERBRIDGE_CONFIG_DIR="$CONFIG_DIR"     SERVERBRIDGE_STATE_DIR="$STATE_DIR"     SERVERBRIDGE_BIN_DIR="$BIN_DIR"     bash ./uninstall.sh >/dev/null 2>&1 || true
@@ -76,7 +78,7 @@ esac
 FAKE
 chmod +x "$FIXTURES/payload/tunnel-client"
 
-python - "$FIXTURES" <<'PY'
+"$PYTHON_BIN" - "$FIXTURES" <<'PY'
 from pathlib import Path
 import zipfile
 import sys
