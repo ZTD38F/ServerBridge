@@ -85,7 +85,8 @@ def truncate(value: str, limit: int = MAX_CAPTURE) -> tuple[str,bool]:
     return redact(raw[:limit].decode('utf-8',errors='replace')+'\n…[truncated]'),True
 
 def atomic_write(path: Path, data: bytes, expected_sha256: str|None=None) -> dict[str,Any]:
-    if path.exists() and expected_sha256 is not None:
+    previous=path.stat() if path.exists() else None
+    if previous is not None and expected_sha256 is not None:
         current=sha256_file(path)
         if current != expected_sha256:
             raise RuntimeError(f'CONFLICT: expected sha256 {expected_sha256}, current {current}')
@@ -94,7 +95,10 @@ def atomic_write(path: Path, data: bytes, expected_sha256: str|None=None) -> dic
     try:
         with os.fdopen(fd,'wb') as f:
             f.write(data); f.flush(); os.fsync(f.fileno())
-        os.chmod(tmp, path.stat().st_mode & 0o7777 if path.exists() else 0o640)
+        os.chmod(tmp, previous.st_mode & 0o7777 if previous is not None else 0o640)
+        if previous is not None:
+            try: os.chown(tmp,previous.st_uid,previous.st_gid)
+            except PermissionError: pass
         os.replace(tmp,path)
     finally:
         try: os.unlink(tmp)
