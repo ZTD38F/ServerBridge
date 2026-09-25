@@ -14,9 +14,11 @@ ServerBridge protects only its own control-plane credential/configuration paths 
 
 Change `SERVERBRIDGE_PROTECTED_PATHS` if you want a narrower or completely unrestricted read model.
 
-## Optional command execution
+## Optional mutation capabilities
 
 `run_command` is not registered unless `SERVERBRIDGE_ENABLE_EXEC=1` (or an equivalent explicit true value) is persisted. When enabled, it executes with the OS privileges of ServerBridge; the default systemd service runs as root.
+
+Typed mutation families can also be controlled independently with `SERVERBRIDGE_ENABLE_WRITE`, `SERVERBRIDGE_ENABLE_PROCESS`, and `SERVERBRIDGE_ENABLE_SERVICE_CONTROL`. For backward compatibility, each defaults to the value of `SERVERBRIDGE_ENABLE_EXEC` when not explicitly set. Filesystem writes are atomic and `edit_file` can require an expected SHA-256 to detect concurrent changes. Mutation operations are written to a best-effort append-only audit log (default `/var/lib/serverbridge/audit.jsonl`), while command and persistent-process output passes through secret redaction before returning through MCP.
 
 Execution mode therefore changes the trust model substantially. It is intended only for a private tunnel whose operator explicitly wants remote administration. The tool accepts argv-form commands, has bounded output, enforces a configured timeout, terminates the whole process group on timeout, and does not echo full command arguments in its response. The file-tool protected-path boundary does **not** sandbox an enabled root command.
 
