@@ -16,9 +16,13 @@ BIN_DIR="${SERVERBRIDGE_BIN_DIR:-/usr/local/lib/serverbridge}"
   exit 1
 }
 
-if command -v systemctl >/dev/null 2>&1 && [[ -f /etc/systemd/system/serverbridge.service ]]; then
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl disable --now serverbridge-update.timer >/dev/null 2>&1 || true
+  systemctl stop serverbridge-update.service >/dev/null 2>&1 || true
   systemctl disable --now serverbridge.service >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/serverbridge.service
+  rm -f /etc/systemd/system/serverbridge-update.service
+  rm -f /etc/systemd/system/serverbridge-update.timer
   systemctl daemon-reload || true
 fi
 
@@ -27,6 +31,7 @@ if command -v rc-service >/dev/null 2>&1 && [[ -f /etc/init.d/serverbridge ]]; t
   rc-update del serverbridge default >/dev/null 2>&1 || true
   rm -f /etc/init.d/serverbridge
 fi
+rm -f /etc/periodic/daily/serverbridge-update /etc/cron.daily/serverbridge-update 2>/dev/null || true
 
 rm -f /usr/local/sbin/serverbridgectl
 rm -rf "$INSTALL_ROOT" "$STATE_DIR" "$BIN_DIR"
