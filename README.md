@@ -35,10 +35,18 @@ sudo serverbridgectl logs
 sudo serverbridgectl restart
 ```
 
-Update:
+Update manually:
 
 ```bash
 sudo serverbridgectl update
+```
+
+Automatic updates are enabled by default. On systemd hosts, ServerBridge installs a persistent daily timer with up to six hours of randomized delay; OpenRC hosts use the available daily periodic/cron directory. The updater is locked against concurrent runs, uses the **stable GitHub Release** channel, relies on the transactional installer rollback, and runs `serverbridgectl check` after every successful update attempt.
+
+To opt out during installation:
+
+```bash
+curl -fsSL https://github.com/ZTD38F/ServerBridge/releases/latest/download/bootstrap.sh | sudo bash -s -- --no-auto-update
 ```
 
 The normal install/update channel is **stable**: it resolves the latest published GitHub Release, not unreleased commits from `main`.
