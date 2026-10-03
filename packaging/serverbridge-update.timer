@@ -1,0 +1,12 @@
+[Unit]
+Description=Check for ServerBridge stable updates daily
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=6h
+Persistent=true
+AccuracySec=15m
+Unit=serverbridge-update.service
+
+[Install]
+WantedBy=timers.target
