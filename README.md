@@ -41,7 +41,7 @@ Update manually:
 sudo serverbridgectl update
 ```
 
-Automatic updates are enabled by default. On systemd hosts, ServerBridge installs a persistent daily timer with up to six hours of randomized delay; OpenRC hosts use the available daily periodic/cron directory. The updater is locked against concurrent runs, uses the **stable GitHub Release** channel, relies on the transactional installer rollback, and runs `serverbridgectl check` after every successful update attempt.
+Automatic updates are enabled by default. On systemd hosts, ServerBridge installs a persistent daily timer with up to six hours of randomized delay; OpenRC hosts use the available daily periodic/cron directory. The updater is locked against concurrent runs, compares the installed version with the latest **stable GitHub Release** first, performs a no-op when already current, relies on the transactional installer rollback, and runs `serverbridgectl check` after every real update attempt.
 
 To opt out during installation:
 
