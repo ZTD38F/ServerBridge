@@ -625,22 +625,12 @@ validate_tunnel_client_binary() {
   "$binary" --version >/dev/null 2>&1 ||
     die "Downloaded tunnel-client cannot execute on this host."
 
-  help="$("$binary" init --help 2>&1)" ||
-    die "Downloaded tunnel-client does not provide a usable init command."
-  for flag in --profile-dir --tunnel-id --mcp-command --health-listen-addr; do
-    grep -Fq -- "$flag" <<<"$help" ||
-      die "Latest tunnel-client is missing required init flag: $flag"
-  done
-
-  help="$("$binary" doctor --help 2>&1)" ||
-    die "Downloaded tunnel-client does not provide a usable doctor command."
-  grep -Fq -- "--profile-dir" <<<"$help" ||
-    die "Latest tunnel-client is missing doctor --profile-dir."
-
   help="$("$binary" run --help 2>&1)" ||
     die "Downloaded tunnel-client does not provide a usable run command."
-  grep -Fq -- "--profile-dir" <<<"$help" ||
-    die "Latest tunnel-client is missing run --profile-dir."
+  for flag in --control-plane.api-key --control-plane.tunnel-id --mcp.server-url --mcp.extra-headers --health.listen-addr; do
+    grep -Fq -- "$flag" <<<"$help" ||
+      die "Latest tunnel-client is missing required HTTP transport flag: $flag"
+  done
 }
 
 ensure_local_secret() {
