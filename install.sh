@@ -723,45 +723,45 @@ ROOT="$INSTALL_ROOT"
 STATE="$STATE_DIR"
 INIT="$INIT"
 
-case "${1:-check}" in
+case "\${1:-check}" in
   check|doctor)
     ok=1
-    if [[ "$INIT" == systemd ]]; then
+    if [[ "\$INIT" == systemd ]]; then
       systemctl is-active --quiet serverbridge-supervisor.service || { echo "FAIL supervisor"; ok=0; }
       systemctl is-active --quiet serverbridge.service || { echo "FAIL transport"; ok=0; }
-    elif [[ "$INIT" == openrc ]]; then
+    elif [[ "\$INIT" == openrc ]]; then
       rc-service serverbridge-supervisor status >/dev/null 2>&1 || { echo "FAIL supervisor"; ok=0; }
       rc-service serverbridge status >/dev/null 2>&1 || { echo "FAIL transport"; ok=0; }
     fi
-    [[ -s "$STATE/route.json" ]] || { echo "FAIL route state"; ok=0; }
-    [[ -s "$STATE/backend.pid" ]] || { echo "FAIL backend pid"; ok=0; }
+    [[ -s "\$STATE/route.json" ]] || { echo "FAIL route state"; ok=0; }
+    [[ -s "\$STATE/backend.pid" ]] || { echo "FAIL backend pid"; ok=0; }
     ((ok==1)) || exit 1
     echo "ServerBridge OK"
     ;;
   status|update-status)
     echo "ServerBridge"
-    [[ ! -L "$ROOT/current" ]] || echo "  current: $(basename "$(readlink -f "$ROOT/current")")"
-    [[ ! -s "$STATE/route.json" ]] || { echo "  route:"; sed 's/^/    /' "$STATE/route.json"; }
-    [[ ! -s "$STATE/update.json" ]] || { echo "  update:"; sed 's/^/    /' "$STATE/update.json"; }
-    if [[ "$INIT" == systemd ]]; then
+    [[ ! -L "\$ROOT/current" ]] || echo "  current: \$(basename "\$(readlink -f "\$ROOT/current")")"
+    [[ ! -s "\$STATE/route.json" ]] || { echo "  route:"; sed 's/^/    /' "\$STATE/route.json"; }
+    [[ ! -s "\$STATE/update.json" ]] || { echo "  update:"; sed 's/^/    /' "\$STATE/update.json"; }
+    if [[ "\$INIT" == systemd ]]; then
       systemctl --no-pager --full status serverbridge-supervisor.service serverbridge.service || true
     fi
     ;;
   logs)
-    if [[ "$INIT" == systemd ]]; then exec journalctl -u serverbridge-supervisor -u serverbridge -n "${2:-100}" --no-pager
-    else exec tail -n "${2:-100}" /var/log/serverbridge*.log; fi
+    if [[ "\$INIT" == systemd ]]; then exec journalctl -u serverbridge-supervisor -u serverbridge -n "\${2:-100}" --no-pager
+    else exec tail -n "\${2:-100}" /var/log/serverbridge*.log; fi
     ;;
   restart)
-    if [[ "$INIT" == systemd ]]; then systemctl restart serverbridge-supervisor.service; exec systemctl restart serverbridge.service
-    elif [[ "$INIT" == openrc ]]; then rc-service serverbridge-supervisor restart; exec rc-service serverbridge restart
+    if [[ "\$INIT" == systemd ]]; then systemctl restart serverbridge-supervisor.service; exec systemctl restart serverbridge.service
+    elif [[ "\$INIT" == openrc ]]; then rc-service serverbridge-supervisor restart; exec rc-service serverbridge restart
     else exit 1; fi
     ;;
   update|update-now)
-    exec "$ROOT/current/.venv/bin/python" -m serverbridge.update_engine
+    exec "\$ROOT/current/.venv/bin/python" -m serverbridge.update_engine
     ;;
   stop)
-    if [[ "$INIT" == systemd ]]; then systemctl stop serverbridge.service; exec systemctl stop serverbridge-supervisor.service
-    elif [[ "$INIT" == openrc ]]; then rc-service serverbridge stop; exec rc-service serverbridge-supervisor stop
+    if [[ "\$INIT" == systemd ]]; then systemctl stop serverbridge.service; exec systemctl stop serverbridge-supervisor.service
+    elif [[ "\$INIT" == openrc ]]; then rc-service serverbridge stop; exec rc-service serverbridge-supervisor stop
     else exit 0; fi
     ;;
   *) echo "Usage: serverbridgectl {check|doctor|status|update-status|logs [N]|restart|update|update-now|stop}" >&2; exit 2 ;;
