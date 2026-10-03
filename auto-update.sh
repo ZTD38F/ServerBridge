@@ -37,6 +37,28 @@ log() {
 rotate_log
 log "auto-update check started"
 
+PYTHON="/opt/serverbridge/current/.venv/bin/python"
+if [[ ! -x "$PYTHON" ]]; then
+  log "ERROR installed ServerBridge Python runtime not found"
+  exit 1
+fi
+
+LOCAL_VERSION="$("$PYTHON" -c 'import serverbridge; print(serverbridge.__version__)')"
+LATEST_TAG="$(curl -fsSL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 60 \
+  https://api.github.com/repos/ZTD38F/ServerBridge/releases/latest |
+  "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')"
+
+if [[ "$LATEST_TAG" == "v$LOCAL_VERSION" ]]; then
+  log "ok already current at $LOCAL_VERSION"
+  exit 0
+fi
+
+[[ "$LATEST_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  log "ERROR invalid latest release tag: $LATEST_TAG"
+  exit 1
+}
+log "update available: $LOCAL_VERSION -> $LATEST_TAG"
+
 if /usr/local/sbin/serverbridgectl update >>"$LOG" 2>&1; then
   if /usr/local/sbin/serverbridgectl check >>"$LOG" 2>&1; then
     log "auto-update check completed successfully"
