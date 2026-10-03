@@ -19,6 +19,7 @@ jobs:
           bash -n bootstrap.sh
           bash -n install.sh
           bash -n update.sh
+          bash -n auto-update.sh
           bash -n uninstall.sh
           bash -n scripts/check-upstream-tunnel.sh
           bash -n tests/bootstrap_channels.sh
@@ -29,13 +30,41 @@ jobs:
             sudo apt-get -o DPkg::Lock::Timeout=180 update -qq
             sudo apt-get -o DPkg::Lock::Timeout=180 install -y shellcheck
           fi
-          shellcheck -x bootstrap.sh install.sh update.sh uninstall.sh scripts/check-upstream-tunnel.sh tests/bootstrap_channels.sh
+          shellcheck -x bootstrap.sh install.sh update.sh auto-update.sh uninstall.sh scripts/check-upstream-tunnel.sh tests/bootstrap_channels.sh
 
       - name: Help path
         run: bash install.sh --help >/dev/null
 
       - name: Generated CLI template
         run: python tests/test_installer_templates.py
+
+      - name: Seamless update architecture contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          install=Path("install.sh").read_text()
+          updater=Path("serverbridge/update_engine.py").read_text()
+          auto=Path("auto-update.sh").read_text()
+          required_install=[
+              "serverbridge-supervisor.service",
+              "--mcp.server-url http://127.0.0.1:18766/mcp",
+              "--mcp.extra-headers",
+              "control_plane_api_key",
+              "route.json",
+          ]
+          required_updater=[
+              "CANDIDATE_HEALTHY","SWITCHED","DRAINING_OLD","OBSERVING",
+              "FAILED_ROLLED_BACK","DEFERRED_STATEFUL_HANDLES",
+              "update_supervisor","update_transport",
+          ]
+          for x in required_install:
+              assert x in install, x
+          for x in required_updater:
+              assert x in updater, x
+          assert "serverbridge.update_engine" in auto
+          assert "bootstrap.sh" not in auto
+          print("seamless update contract passed")
+          PY
 
       - name: Bootstrap stable/edge channels
         run: bash tests/bootstrap_channels.sh
