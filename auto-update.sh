@@ -7,8 +7,14 @@ LOG="/var/log/serverbridge-update.log"
 MAX_BYTES=$((5 * 1024 * 1024))
 
 mkdir -p "$(dirname "$LOCK")"
-exec 9>"$LOCK"
-flock -n 9 || exit 0
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$LOCK"
+  flock -n 9 || exit 0
+else
+  LOCKDIR="${LOCK}.d"
+  mkdir "$LOCKDIR" 2>/dev/null || exit 0
+  trap 'rmdir "$LOCKDIR" 2>/dev/null || true' EXIT INT TERM
+fi
 
 rotate_log() {
   [[ -f "$LOG" ]] || return 0
