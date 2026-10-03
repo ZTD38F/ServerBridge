@@ -112,7 +112,8 @@ def stage_latest():
         actual=hashlib.sha256(tar_path.read_bytes()).hexdigest()
         if actual!=expected:raise RuntimeError("release checksum mismatch")
         extract=td/"src";extract.mkdir()
-        with tarfile.open(tar_path,"r:gz") as tf:tf.extractall(extract)
+        with tarfile.open(tar_path,"r:gz") as tf:
+            tf.extractall(extract, filter="data")
         children=[p for p in extract.iterdir() if p.is_dir()]
         src=children[0] if len(children)==1 else extract
         tmp=Path(str(dest)+".tmp");shutil.rmtree(tmp,ignore_errors=True);shutil.copytree(src,tmp)
