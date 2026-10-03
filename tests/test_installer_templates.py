@@ -10,24 +10,23 @@ end = text.index("\nEOF\n  chmod 755 /usr/local/sbin/serverbridgectl", start)
 template = text[start:end]
 
 problems: list[str] = []
-
 for number in ("1", "2"):
     raw = "${" + number
     escaped = "\\${" + number
     if raw in template.replace(escaped, ""):
         problems.append(f"unescaped positional parameter ${number} in generated CLI")
-
-# Every command substitution inside this heredoc belongs to the generated CLI.
 if "$(" in template.replace("\\$(", ""):
     problems.append("unescaped command substitution in generated CLI")
-
 assert not problems, "; ".join(problems)
 
 assert 'case "\\${1:-check}" in' in template
-assert 'log="\\$(mktemp /tmp/serverbridge-doctor.XXXXXX)"' in template
 assert '"\\${2:-100}"' in template
-assert "  update)" in template
-assert 'tmp="\\$(mktemp /tmp/serverbridge-update.XXXXXX.sh)"' in template
-assert 'bash "\\$tmp" "\\$@" || rc=\\$?' in template
+assert "update|update-now)" in template
+assert 'serverbridge.update_engine' in template
 
+assert "serverbridge-supervisor.service" in text
+assert "--mcp.server-url http://127.0.0.1:18766/mcp" in text
+assert "--mcp.extra-headers" in text
+assert "route.json" in text
+assert "control_plane_api_key" in text
 print("installer template expansion test passed")
