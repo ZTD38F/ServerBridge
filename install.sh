@@ -200,6 +200,9 @@ cleanup() {
     restore_optional "$CONFIG_DIR/.serverbridge-managed" config.marker
     restore_optional "$CONFIG_DIR/runtime.env" runtime.env
     restore_optional "$CONFIG_DIR/serverbridge.env" serverbridge.env
+    restore_optional "$CONFIG_DIR/control_plane_api_key" control_plane_api_key
+    restore_optional "$CONFIG_DIR/router_token" router_token
+    restore_optional "$CONFIG_DIR/backend_token" backend_token
     restore_optional "$CONFIG_DIR/network.env" network.env
     restore_optional "$CONFIG_DIR/network.sh" network.sh
     restore_optional "$PROFILE_DIR/$PROFILE_NAME.yaml" profile.yaml
@@ -216,6 +219,11 @@ cleanup() {
       systemctl disable serverbridge.service >/dev/null 2>&1 || true
     fi
     restore_optional /etc/systemd/system/serverbridge.service systemd.service
+    if [[ ! -e "$BACKUP_DIR/supervisor.service.exists" ]] && have systemctl; then
+      systemctl disable --now serverbridge-supervisor.service >/dev/null 2>&1 || true
+      rm -f /etc/systemd/system/serverbridge-supervisor.service
+    fi
+    restore_optional /etc/systemd/system/serverbridge-supervisor.service supervisor.service
     if have systemctl; then systemctl daemon-reload >/dev/null 2>&1 || true; fi
 
     if [[ ! -e "$BACKUP_DIR/openrc.service.exists" ]] && have rc-update; then
@@ -635,6 +643,18 @@ validate_tunnel_client_binary() {
     die "Latest tunnel-client is missing run --profile-dir."
 }
 
+ensure_local_secret() {
+  local path="$1"
+  if [[ ! -s "$path" ]]; then
+    "$PYTHON_BIN" - "$path" <<'PY'
+from pathlib import Path
+import secrets,sys
+p=Path(sys.argv[1]);p.write_text(secrets.token_hex(32)+"\n");p.chmod(0o600)
+PY
+  fi
+  chmod 600 "$path"
+}
+
 write_config() {
   install -d -m 700 "$CONFIG_DIR" "$PROFILE_DIR"
   touch "$CONFIG_DIR/.serverbridge-managed"
@@ -653,9 +673,17 @@ write_config() {
     die "SERVERBRIDGE_EXEC_MAX_TIMEOUT must be 1-3600 seconds."
   fi
 
+  printf '%s\n' "$RUNTIME_KEY" > "$CONFIG_DIR/control_plane_api_key.new"
+  chmod 600 "$CONFIG_DIR/control_plane_api_key.new"
+  mv -f "$CONFIG_DIR/control_plane_api_key.new" "$CONFIG_DIR/control_plane_api_key"
+  ensure_local_secret "$CONFIG_DIR/router_token"
+  ensure_local_secret "$CONFIG_DIR/backend_token"
+
   cat > "$CONFIG_DIR/runtime.env.new" <<EOF
-CONTROL_PLANE_API_KEY=$RUNTIME_KEY
 CONTROL_PLANE_TUNNEL_ID=$TUNNEL_ID
+CONTROL_PLANE_API_KEY_FILE=$CONFIG_DIR/control_plane_api_key
+SERVERBRIDGE_ROUTER_TOKEN_FILE=$CONFIG_DIR/router_token
+SERVERBRIDGE_BACKEND_TOKEN_FILE=$CONFIG_DIR/backend_token
 EOF
   chmod 600 "$CONFIG_DIR/runtime.env.new"
   mv -f "$CONFIG_DIR/runtime.env.new" "$CONFIG_DIR/runtime.env"
@@ -666,7 +694,7 @@ SERVERBRIDGE_MAX_CAPTURE_BYTES=65536
 SERVERBRIDGE_MAX_HASH_BYTES=67108864
 SERVERBRIDGE_ENABLE_EXEC=$exec_enabled
 SERVERBRIDGE_EXEC_MAX_TIMEOUT=$exec_timeout
-SERVERBRIDGE_PROTECTED_PATHS=$CONFIG_DIR/runtime.env:$CONFIG_DIR/network.env:$CONFIG_DIR/network.sh:$PROFILE_DIR
+SERVERBRIDGE_PROTECTED_PATHS=$CONFIG_DIR/runtime.env:$CONFIG_DIR/network.env:$CONFIG_DIR/network.sh:$CONFIG_DIR/control_plane_api_key:$CONFIG_DIR/router_token:$CONFIG_DIR/backend_token:$PROFILE_DIR
 EOF
   chmod 600 "$CONFIG_DIR/serverbridge.env.new"
   mv -f "$CONFIG_DIR/serverbridge.env.new" "$CONFIG_DIR/serverbridge.env"
@@ -691,97 +719,52 @@ install_control_cli() {
   cat > /usr/local/sbin/serverbridgectl <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-CONFIG_DIR="$CONFIG_DIR"
-PROFILE_DIR="$PROFILE_DIR"
-PROFILE_NAME="$PROFILE_NAME"
-TUNNEL="$BIN_DIR/tunnel-client"
+ROOT="$INSTALL_ROOT"
+STATE="$STATE_DIR"
 INIT="$INIT"
 
-load_env() {
-  set -a
-  . "\$CONFIG_DIR/runtime.env"
-  . "\$CONFIG_DIR/serverbridge.env"
-  [[ ! -r "\$CONFIG_DIR/network.sh" ]] || . "\$CONFIG_DIR/network.sh"
-  set +a
-}
-
-doctor() {
-  load_env
-  "\$TUNNEL" doctor --profile-dir "\$PROFILE_DIR" --profile "\$PROFILE_NAME" --explain
-}
-
-case "\${1:-check}" in
-  check)
-    load_env
-    printf 'ServerBridge\n'
-
-    service_ok=1
-    if [[ "\$INIT" == systemd ]]; then
-      if systemctl is-active --quiet serverbridge; then
-        printf '  ✓ service running\n'
-      else
-        printf '  ✗ service not running\n'
-        service_ok=0
-      fi
-    elif [[ "\$INIT" == openrc ]]; then
-      if rc-service serverbridge status >/dev/null 2>&1; then
-        printf '  ✓ service running\n'
-      else
-        printf '  ✗ service not running\n'
-        service_ok=0
-      fi
-    else
-      printf '  ! no supported service manager\n'
+case "${1:-check}" in
+  check|doctor)
+    ok=1
+    if [[ "$INIT" == systemd ]]; then
+      systemctl is-active --quiet serverbridge-supervisor.service || { echo "FAIL supervisor"; ok=0; }
+      systemctl is-active --quiet serverbridge.service || { echo "FAIL transport"; ok=0; }
+    elif [[ "$INIT" == openrc ]]; then
+      rc-service serverbridge-supervisor status >/dev/null 2>&1 || { echo "FAIL supervisor"; ok=0; }
+      rc-service serverbridge status >/dev/null 2>&1 || { echo "FAIL transport"; ok=0; }
     fi
-
-    log="\$(mktemp /tmp/serverbridge-doctor.XXXXXX)"
-    if "\$TUNNEL" doctor --profile-dir "\$PROFILE_DIR" --profile "\$PROFILE_NAME" --explain >"\$log" 2>&1; then
-      printf '  ✓ tunnel profile valid\n'
-    else
-      printf '  ✗ tunnel validation failed\n'
-      cat "\$log"
-      rm -f "\$log"
-      exit 1
+    [[ -s "$STATE/route.json" ]] || { echo "FAIL route state"; ok=0; }
+    [[ -s "$STATE/backend.pid" ]] || { echo "FAIL backend pid"; ok=0; }
+    ((ok==1)) || exit 1
+    echo "ServerBridge OK"
+    ;;
+  status|update-status)
+    echo "ServerBridge"
+    [[ ! -L "$ROOT/current" ]] || echo "  current: $(basename "$(readlink -f "$ROOT/current")")"
+    [[ ! -s "$STATE/route.json" ]] || { echo "  route:"; sed 's/^/    /' "$STATE/route.json"; }
+    [[ ! -s "$STATE/update.json" ]] || { echo "  update:"; sed 's/^/    /' "$STATE/update.json"; }
+    if [[ "$INIT" == systemd ]]; then
+      systemctl --no-pager --full status serverbridge-supervisor.service serverbridge.service || true
     fi
-    rm -f "\$log"
-    ((service_ok == 1)) || exit 1
-    ;;
-  doctor)
-    doctor
-    ;;
-  status)
-    if [[ "\$INIT" == systemd ]]; then systemctl status serverbridge --no-pager || true
-    elif [[ "\$INIT" == openrc ]]; then rc-service serverbridge status || true
-    else echo "No supported service manager configured."; fi
     ;;
   logs)
-    if [[ "\$INIT" == systemd ]]; then exec journalctl -u serverbridge -n "\${2:-100}" --no-pager
-    else exec tail -n "\${2:-100}" /var/log/serverbridge.log; fi
+    if [[ "$INIT" == systemd ]]; then exec journalctl -u serverbridge-supervisor -u serverbridge -n "${2:-100}" --no-pager
+    else exec tail -n "${2:-100}" /var/log/serverbridge*.log; fi
     ;;
   restart)
-    if [[ "\$INIT" == systemd ]]; then exec systemctl restart serverbridge
-    elif [[ "\$INIT" == openrc ]]; then exec rc-service serverbridge restart
-    else echo "No supported service manager." >&2; exit 1; fi
+    if [[ "$INIT" == systemd ]]; then systemctl restart serverbridge-supervisor.service; exec systemctl restart serverbridge.service
+    elif [[ "$INIT" == openrc ]]; then rc-service serverbridge-supervisor restart; exec rc-service serverbridge restart
+    else exit 1; fi
     ;;
-  update)
-    shift
-    tmp="\$(mktemp /tmp/serverbridge-update.XXXXXX.sh)"
-    rc=0
-    curl -fsSL --retry 4 --retry-delay 2 --connect-timeout 15 --max-time 60 \
-      "https://github.com/ZTD38F/ServerBridge/releases/latest/download/bootstrap.sh" \
-      -o "\$tmp" || rc=\$?
-    if ((rc == 0)); then
-      bash "\$tmp" "\$@" || rc=\$?
-    fi
-    rm -f "\$tmp"
-    exit "\$rc"
+  update|update-now)
+    exec "$ROOT/current/.venv/bin/python" -m serverbridge.update_engine
     ;;
   stop)
-    if [[ "\$INIT" == systemd ]]; then exec systemctl stop serverbridge
-    elif [[ "\$INIT" == openrc ]]; then exec rc-service serverbridge stop
+    if [[ "$INIT" == systemd ]]; then systemctl stop serverbridge.service; exec systemctl stop serverbridge-supervisor.service
+    elif [[ "$INIT" == openrc ]]; then rc-service serverbridge stop; exec rc-service serverbridge-supervisor stop
     else exit 0; fi
     ;;
-  *) echo "Usage: serverbridgectl {check|status|doctor|logs [N]|restart|update|stop}" >&2; exit 2 ;;
+  *) echo "Usage: serverbridgectl {check|doctor|status|update-status|logs [N]|restart|update|update-now|stop}" >&2; exit 2 ;;
 esac
 EOF
   chmod 755 /usr/local/sbin/serverbridgectl
@@ -832,9 +815,9 @@ install_auto_update() {
 }
 
 create_systemd_service() {
-  cat > /etc/systemd/system/serverbridge.service <<EOF
+  cat > /etc/systemd/system/serverbridge-supervisor.service <<EOF
 [Unit]
-Description=ServerBridge OpenAI Secure MCP Tunnel
+Description=ServerBridge local MCP supervisor
 Documentation=https://github.com/$REPO
 After=network-online.target
 Wants=network-online.target
@@ -843,18 +826,48 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-EnvironmentFile=$CONFIG_DIR/runtime.env
 EnvironmentFile=$CONFIG_DIR/serverbridge.env
 EnvironmentFile=-$CONFIG_DIR/network.env
-ExecStart=$BIN_DIR/tunnel-client run --profile-dir $PROFILE_DIR --profile $PROFILE_NAME
+Environment=SERVERBRIDGE_BACKEND_TOKEN_FILE=$CONFIG_DIR/backend_token
+ExecStart=$INSTALL_ROOT/current/.venv/bin/python -m serverbridge.supervisor
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=30s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  cat > /etc/systemd/system/serverbridge.service <<EOF
+[Unit]
+Description=ServerBridge OpenAI Secure MCP Tunnel
+Documentation=https://github.com/$REPO
+After=network-online.target serverbridge-supervisor.service
+Wants=network-online.target
+Requires=serverbridge-supervisor.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+EnvironmentFile=-$CONFIG_DIR/network.env
+ExecStart=$BIN_DIR/tunnel-client run --control-plane.api-key file:$CONFIG_DIR/control_plane_api_key --control-plane.tunnel-id $TUNNEL_ID --mcp.server-url http://127.0.0.1:18766/mcp --mcp.extra-headers "X-Bridge-Token: file:$CONFIG_DIR/router_token" --health.listen-addr 127.0.0.1:18765
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=30s
 KillMode=mixed
 UMask=0077
-
-# Conservative service hardening: keep server reads available while blocking
-# common privilege-escalation and kernel-write paths.
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
@@ -872,46 +885,57 @@ WantedBy=multi-user.target
 EOF
 
   systemctl daemon-reload
-  systemctl enable serverbridge.service >/dev/null
+  systemctl enable serverbridge-supervisor.service serverbridge.service >/dev/null
 }
 
 create_openrc_service() {
+  cat > /etc/init.d/serverbridge-supervisor <<EOF
+#!/sbin/openrc-run
+name="ServerBridge supervisor"
+description="ServerBridge local MCP supervisor"
+command="$INSTALL_ROOT/current/.venv/bin/python"
+command_args="-m serverbridge.supervisor"
+command_background="yes"
+pidfile="/run/serverbridge-supervisor.pid"
+output_log="/var/log/serverbridge-supervisor.log"
+error_log="/var/log/serverbridge-supervisor.log"
+start_pre() {
+  set -a
+  . "$CONFIG_DIR/serverbridge.env"
+  [ ! -r "$CONFIG_DIR/network.sh" ] || . "$CONFIG_DIR/network.sh"
+  export SERVERBRIDGE_BACKEND_TOKEN_FILE="$CONFIG_DIR/backend_token"
+  set +a
+}
+depend() { need net; after firewall; }
+EOF
+  chmod 755 /etc/init.d/serverbridge-supervisor
+
   cat > /etc/init.d/serverbridge <<EOF
 #!/sbin/openrc-run
 name="ServerBridge"
 description="ServerBridge OpenAI Secure MCP Tunnel"
 command="$BIN_DIR/tunnel-client"
-command_args="run --profile-dir $PROFILE_DIR --profile $PROFILE_NAME"
+command_args="run --control-plane.api-key file:$CONFIG_DIR/control_plane_api_key --control-plane.tunnel-id $TUNNEL_ID --mcp.server-url http://127.0.0.1:18766/mcp --mcp.extra-headers 'X-Bridge-Token: file:$CONFIG_DIR/router_token' --health.listen-addr 127.0.0.1:18765"
 command_background="yes"
 pidfile="/run/serverbridge.pid"
 output_log="/var/log/serverbridge.log"
 error_log="/var/log/serverbridge.log"
-
-start_pre() {
-  set -a
-  . "$CONFIG_DIR/runtime.env"
-  . "$CONFIG_DIR/serverbridge.env"
-  [ ! -r "$CONFIG_DIR/network.sh" ] || . "$CONFIG_DIR/network.sh"
-  set +a
-}
-
-depend() {
-  need net
-  after firewall
-}
+start_pre() { [ ! -r "$CONFIG_DIR/network.sh" ] || . "$CONFIG_DIR/network.sh"; }
+depend() { need net serverbridge-supervisor; after firewall; }
 EOF
-
   chmod 755 /etc/init.d/serverbridge
+  rc-update add serverbridge-supervisor default >/dev/null
   rc-update add serverbridge default >/dev/null
 }
 
 start_and_verify() {
   case "$INIT" in
     systemd)
+      systemctl restart serverbridge-supervisor.service
       systemctl restart serverbridge.service
       local stable=0
-      for _ in {1..25}; do
-        if systemctl is-active --quiet serverbridge.service; then
+      for _ in {1..30}; do
+        if systemctl is-active --quiet serverbridge-supervisor.service && systemctl is-active --quiet serverbridge.service; then
           stable=$((stable + 1))
           ((stable >= 5)) && return 0
         else
@@ -919,13 +943,14 @@ start_and_verify() {
         fi
         sleep 1
       done
-      journalctl -u serverbridge.service -n 80 --no-pager >&2 || true
+      journalctl -u serverbridge-supervisor.service -u serverbridge.service -n 100 --no-pager >&2 || true
       return 1
       ;;
     openrc)
+      rc-service serverbridge-supervisor restart
       rc-service serverbridge restart
       sleep 3
-      rc-service serverbridge status
+      rc-service serverbridge-supervisor status && rc-service serverbridge status
       ;;
     manual)
       return 0
@@ -1003,6 +1028,9 @@ else
   backup_optional "$CONFIG_DIR/.serverbridge-managed" config.marker
   backup_optional "$CONFIG_DIR/runtime.env" runtime.env
   backup_optional "$CONFIG_DIR/serverbridge.env" serverbridge.env
+  backup_optional "$CONFIG_DIR/control_plane_api_key" control_plane_api_key
+  backup_optional "$CONFIG_DIR/router_token" router_token
+  backup_optional "$CONFIG_DIR/backend_token" backend_token
   backup_optional "$CONFIG_DIR/network.env" network.env
   backup_optional "$CONFIG_DIR/network.sh" network.sh
   backup_optional "$PROFILE_DIR/$PROFILE_NAME.yaml" profile.yaml
@@ -1011,6 +1039,7 @@ else
   backup_optional "$BIN_DIR/auto-update" auto-update
   backup_optional /usr/local/sbin/serverbridgectl serverbridgectl
   backup_optional /etc/systemd/system/serverbridge.service systemd.service
+  backup_optional /etc/systemd/system/serverbridge-supervisor.service supervisor.service
   backup_optional /etc/systemd/system/serverbridge-update.service update.service
   backup_optional /etc/systemd/system/serverbridge-update.timer update.timer
   backup_optional /etc/periodic/daily/serverbridge-update update.periodic
@@ -1053,26 +1082,13 @@ if ((DRY_RUN)); then
 else
   write_config
   ln -sfn "$NEW_RELEASE" "$INSTALL_ROOT/current"
-  install_launcher
-
-  set -a
-  # shellcheck disable=SC1091
-  . "$CONFIG_DIR/runtime.env"
-  # shellcheck disable=SC1091
-  . "$CONFIG_DIR/serverbridge.env"
-  if [[ -r "$CONFIG_DIR/network.sh" ]]; then
-    # shellcheck disable=SC1091
-    . "$CONFIG_DIR/network.sh"
-  fi
-  set +a
-
-  "$BIN_DIR/tunnel-client" init     --sample sample_mcp_stdio_local     --profile "$PROFILE_NAME"     --profile-dir "$PROFILE_DIR"     --tunnel-id "$TUNNEL_ID"     --mcp-command "$BIN_DIR/launch-mcp"     --health-listen-addr 127.0.0.1:0     --force >/dev/null
-
-  chmod 700 "$PROFILE_DIR"
-  chmod 600 "$PROFILE_DIR/$PROFILE_NAME.yaml"
-
-  run_checked "$BIN_DIR/tunnel-client" doctor     --profile-dir "$PROFILE_DIR"     --profile "$PROFILE_NAME"     --explain ||
-    die "Tunnel validation failed."
+  install -d -m 700 "$STATE_DIR"
+  "$PYTHON_BIN" - "$STATE_DIR/route.json" "$(basename "$NEW_RELEASE")" <<'PY'
+import json,os,pathlib,sys
+p=pathlib.Path(sys.argv[1]);tmp=p.with_suffix(".tmp")
+tmp.write_text(json.dumps({"generation":sys.argv[2],"port":18771},separators=(",",":"))+"\n")
+os.replace(tmp,p);p.chmod(0o600)
+PY
 
   install_control_cli
   install_auto_update
