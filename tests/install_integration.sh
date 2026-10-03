@@ -30,7 +30,11 @@ cmd="${1:-}"
 
 case "$cmd" in
   --version)
-    echo "tunnel-client v0.0.0-test"
+    if [[ "${FAKE_VERSION_FAIL:-0}" == "1" ]]; then
+      echo "intentional version failure" >&2
+      exit 42
+    fi
+    echo "0.0.0"
     ;;
   init)
     if [[ "${2:-}" == "--help" || " $* " == *" --help "* ]]; then
@@ -65,7 +69,7 @@ case "$cmd" in
     ;;
   run)
     if [[ "${2:-}" == "--help" || " $* " == *" --help "* ]]; then
-      echo "--profile-dir --profile"
+      echo "--control-plane.api-key --control-plane.tunnel-id --mcp.server-url --mcp.extra-headers --health.listen-addr"
       exit 0
     fi
     while :; do sleep 60; done
@@ -174,18 +178,19 @@ assert_test "tunnel-client symlink/binary missing" test -x "$BIN_DIR/tunnel-clie
 assert_test "serverbridgectl missing" test -x /usr/local/sbin/serverbridgectl
 assert_test "runtime.env missing" sudo test -f "$CONFIG_DIR/runtime.env"
 assert_test "serverbridge.env missing" sudo test -f "$CONFIG_DIR/serverbridge.env"
-assert_test "tunnel profile missing" sudo test -f "$CONFIG_DIR/tunnel-client/serverbridge.yaml"
+assert_test "route state missing" sudo test -f "$STATE_DIR/route.json"
+assert_test "control-plane key file missing" sudo test -f "$CONFIG_DIR/control_plane_api_key"
+assert_test "router token missing" sudo test -f "$CONFIG_DIR/router_token"
+assert_test "backend token missing" sudo test -f "$CONFIG_DIR/backend_token"
+assert_test "supervisor unit missing" sudo test -f /etc/systemd/system/serverbridge-supervisor.service
+assert_test "transport unit missing" sudo test -f /etc/systemd/system/serverbridge.service
+assert_test "legacy stdio profile should not be created" sudo test ! -f "$CONFIG_DIR/tunnel-client/serverbridge.yaml"
 
 old_current="$(readlink -f "$INSTALL_ROOT/current")"
 
-if ! sudo env "${common_env[@]}" /usr/local/sbin/serverbridgectl doctor; then
-  echo "ASSERTION FAILED: serverbridgectl doctor failed after clean install" >&2
-  exit 1
-fi
-
 echo "== forced failed update =="
 set +e
-sudo env "${common_env[@]}" FAKE_DOCTOR_FAIL=1 bash ./install.sh --no-start >/tmp/serverbridge-failed-update.log 2>&1
+sudo env "${common_env[@]}" FAKE_VERSION_FAIL=1 bash ./install.sh --no-start >/tmp/serverbridge-failed-update.log 2>&1
 rc=$?
 set -e
 
@@ -202,6 +207,7 @@ new_current="$(readlink -f "$INSTALL_ROOT/current")"
   exit 1
 }
 
-sudo env "${common_env[@]}" /usr/local/sbin/serverbridgectl doctor >/dev/null
+assert_test "route state lost after rollback" sudo test -f "$STATE_DIR/route.json"
+assert_test "supervisor unit lost after rollback" sudo test -f /etc/systemd/system/serverbridge-supervisor.service
 
 echo "ServerBridge install + rollback integration test passed."
