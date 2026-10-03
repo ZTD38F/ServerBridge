@@ -1,0 +1,12 @@
+[Unit]
+Description=ServerBridge automatic stable update
+Documentation=https://github.com/ZTD38F/ServerBridge
+After=network-online.target serverbridge.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/serverbridge/auto-update
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
