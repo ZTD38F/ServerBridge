@@ -41,7 +41,21 @@ Update manually:
 sudo serverbridgectl update
 ```
 
-Automatic updates are enabled by default. On systemd hosts, ServerBridge installs a persistent daily timer with up to six hours of randomized delay; OpenRC hosts use the available daily periodic/cron directory. The updater is locked against concurrent runs, compares the installed version with the latest **stable GitHub Release** first, performs a no-op when already current, relies on the transactional installer rollback, and runs `serverbridgectl check` after every real update attempt.
+Automatic updates are enabled by default. On systemd hosts, ServerBridge
+installs a persistent daily timer with randomized delay. Ordinary Python/MCP
+runtime updates are generation-based and keep the Secure MCP Tunnel transport
+alive: a checksum-verified candidate starts on the inactive backend port, MCP
+tool compatibility is checked, the authenticated supervisor switches routing,
+old in-flight requests drain, and the candidate is observed before commit.
+
+Long-lived `start_process` sessions are never silently orphaned: activation is
+deferred while such handles are owned by the current generation. Interrupted
+transactions recover from `/var/lib/serverbridge/update.json`.
+
+Tunnel-client changes are a separate `TRANSPORT_UPDATE`. They are verified
+against the official SHA-256 list and use the shortest controlled transport
+restart with automatic rollback. The fallback bootstrap updater now verifies
+`bootstrap.sh` against the release checksum before execution.
 
 To opt out during installation:
 
@@ -88,10 +102,10 @@ Then rescan the tunnel tools in ChatGPT once. `run_command` accepts an argv arra
 - Python 3.10+
 - OpenAI `tunnel-client v0.0.14`, pinned to the tested release
 - official SHA-256 verification
-- stdio MCP with no fixed MCP port
+- authenticated loopback Streamable HTTP MCP behind a long-lived supervisor
 - hashed Python dependency lock
 - outbound proxy/private-CA environment preservation
-- isolated releases and rollback
+- isolated runtime generations, atomic route switch and rollback
 - systemd service hardening
 - `tunnel-client doctor`
 - service health verification

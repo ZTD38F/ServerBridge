@@ -20,16 +20,25 @@ if command -v systemctl >/dev/null 2>&1; then
   systemctl disable --now serverbridge-update.timer >/dev/null 2>&1 || true
   systemctl stop serverbridge-update.service >/dev/null 2>&1 || true
   systemctl disable --now serverbridge.service >/dev/null 2>&1 || true
+  systemctl disable --now serverbridge-supervisor.service >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/serverbridge.service
+  rm -f /etc/systemd/system/serverbridge-supervisor.service
   rm -f /etc/systemd/system/serverbridge-update.service
   rm -f /etc/systemd/system/serverbridge-update.timer
   systemctl daemon-reload || true
 fi
 
-if command -v rc-service >/dev/null 2>&1 && [[ -f /etc/init.d/serverbridge ]]; then
-  rc-service serverbridge stop >/dev/null 2>&1 || true
-  rc-update del serverbridge default >/dev/null 2>&1 || true
-  rm -f /etc/init.d/serverbridge
+if command -v rc-service >/dev/null 2>&1; then
+  if [[ -f /etc/init.d/serverbridge ]]; then
+    rc-service serverbridge stop >/dev/null 2>&1 || true
+    rc-update del serverbridge default >/dev/null 2>&1 || true
+    rm -f /etc/init.d/serverbridge
+  fi
+  if [[ -f /etc/init.d/serverbridge-supervisor ]]; then
+    rc-service serverbridge-supervisor stop >/dev/null 2>&1 || true
+    rc-update del serverbridge-supervisor default >/dev/null 2>&1 || true
+    rm -f /etc/init.d/serverbridge-supervisor
+  fi
 fi
 rm -f /etc/periodic/daily/serverbridge-update /etc/cron.daily/serverbridge-update 2>/dev/null || true
 
