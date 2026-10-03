@@ -32,6 +32,8 @@ STATE_EXISTED=0
 BIN_EXISTED=0
 PREVIOUS_SERVICE_ACTIVE=0
 PREVIOUS_SERVICE_ENABLED=0
+PREVIOUS_UPDATE_TIMER_ACTIVE=0
+PREVIOUS_UPDATE_TIMER_ENABLED=0
 CURRENT_STEP="startup"
 
 if [[ -t 1 ]]; then
@@ -119,6 +121,12 @@ capture_previous_service_state() {
     if systemctl is-enabled --quiet serverbridge.service; then
       PREVIOUS_SERVICE_ENABLED=1
     fi
+    if systemctl is-active --quiet serverbridge-update.timer; then
+      PREVIOUS_UPDATE_TIMER_ACTIVE=1
+    fi
+    if systemctl is-enabled --quiet serverbridge-update.timer; then
+      PREVIOUS_UPDATE_TIMER_ENABLED=1
+    fi
   elif [[ "$INIT" == "openrc" ]] && have rc-service &&
        [[ -f /etc/init.d/serverbridge ]]; then
     if rc-service serverbridge status >/dev/null 2>&1; then
@@ -144,6 +152,17 @@ restore_previous_service_state() {
       systemctl restart serverbridge.service >/dev/null 2>&1 || true
     else
       systemctl stop serverbridge.service >/dev/null 2>&1 || true
+    fi
+
+    if ((PREVIOUS_UPDATE_TIMER_ENABLED)); then
+      systemctl enable serverbridge-update.timer >/dev/null 2>&1 || true
+    else
+      systemctl disable serverbridge-update.timer >/dev/null 2>&1 || true
+    fi
+    if ((PREVIOUS_UPDATE_TIMER_ACTIVE)); then
+      systemctl start serverbridge-update.timer >/dev/null 2>&1 || true
+    else
+      systemctl stop serverbridge-update.timer >/dev/null 2>&1 || true
     fi
   elif [[ "$INIT" == "openrc" ]] && have rc-service; then
     if have rc-update; then
@@ -186,12 +205,18 @@ cleanup() {
     restore_optional "$PROFILE_DIR/$PROFILE_NAME.yaml" profile.yaml
     restore_optional "$BIN_DIR/tunnel-client" tunnel-client
     restore_optional "$BIN_DIR/launch-mcp" launch-mcp
+    restore_optional "$BIN_DIR/auto-update" auto-update
     restore_optional /usr/local/sbin/serverbridgectl serverbridgectl
+    restore_optional /etc/systemd/system/serverbridge-update.service update.service
+    restore_optional /etc/systemd/system/serverbridge-update.timer update.timer
+    restore_optional /etc/periodic/daily/serverbridge-update update.periodic
+    restore_optional /etc/cron.daily/serverbridge-update update.cron
 
     if [[ ! -e "$BACKUP_DIR/systemd.service.exists" ]] && have systemctl; then
       systemctl disable serverbridge.service >/dev/null 2>&1 || true
     fi
     restore_optional /etc/systemd/system/serverbridge.service systemd.service
+    if have systemctl; then systemctl daemon-reload >/dev/null 2>&1 || true; fi
 
     if [[ ! -e "$BACKUP_DIR/openrc.service.exists" ]] && have rc-update; then
       rc-update del serverbridge default >/dev/null 2>&1 || true
@@ -764,7 +789,22 @@ EOF
 
 install_auto_update() {
   [[ "$AUTO_UPDATE" =~ ^(0|1)$ ]] || die "SERVERBRIDGE_AUTO_UPDATE must be 0 or 1."
-  ((AUTO_UPDATE)) || return 0
+
+  if ((AUTO_UPDATE == 0)); then
+    rm -f "$BIN_DIR/auto-update"
+    case "$INIT" in
+      systemd)
+        systemctl disable --now serverbridge-update.timer >/dev/null 2>&1 || true
+        systemctl stop serverbridge-update.service >/dev/null 2>&1 || true
+        rm -f /etc/systemd/system/serverbridge-update.service /etc/systemd/system/serverbridge-update.timer
+        systemctl daemon-reload
+        ;;
+      openrc)
+        rm -f /etc/periodic/daily/serverbridge-update /etc/cron.daily/serverbridge-update
+        ;;
+    esac
+    return 0
+  fi
 
   chmod 755 "$NEW_RELEASE/auto-update.sh"
   install -m 755 "$NEW_RELEASE/auto-update.sh" "$BIN_DIR/auto-update"
@@ -968,8 +1008,13 @@ else
   backup_optional "$PROFILE_DIR/$PROFILE_NAME.yaml" profile.yaml
   backup_optional "$BIN_DIR/tunnel-client" tunnel-client
   backup_optional "$BIN_DIR/launch-mcp" launch-mcp
+  backup_optional "$BIN_DIR/auto-update" auto-update
   backup_optional /usr/local/sbin/serverbridgectl serverbridgectl
   backup_optional /etc/systemd/system/serverbridge.service systemd.service
+  backup_optional /etc/systemd/system/serverbridge-update.service update.service
+  backup_optional /etc/systemd/system/serverbridge-update.timer update.timer
+  backup_optional /etc/periodic/daily/serverbridge-update update.periodic
+  backup_optional /etc/cron.daily/serverbridge-update update.cron
   backup_optional /etc/init.d/serverbridge openrc.service
 
   TRANSACTION_STARTED=1
