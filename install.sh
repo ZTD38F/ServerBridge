@@ -15,6 +15,7 @@ PROFILE_DIR="$CONFIG_DIR/tunnel-client"
 PROFILE_NAME="serverbridge"
 DRY_RUN=0
 NO_START=0
+AUTO_UPDATE="${SERVERBRIDGE_AUTO_UPDATE:-1}"
 TUNNEL_ID="${SERVERBRIDGE_TUNNEL_ID:-${CONTROL_PLANE_TUNNEL_ID:-}}"
 RUNTIME_KEY="${CONTROL_PLANE_API_KEY:-}"
 SOURCE_SHA="${SERVERBRIDGE_SOURCE_SHA:-}"
@@ -61,6 +62,7 @@ Usage:
 Options:
   --dry-run       Detect and validate only; do not modify the server.
   --no-start      Install and validate but do not start the service.
+  --no-auto-update Do not install the daily stable auto-update job.
   --tunnel-id ID  Supply the tunnel ID non-interactively.
   --help          Show this help.
 
@@ -74,6 +76,7 @@ while (($#)); do
   case "$1" in
     --dry-run) DRY_RUN=1 ;;
     --no-start) NO_START=1 ;;
+    --no-auto-update) AUTO_UPDATE=0 ;;
     --tunnel-id)
       shift
       (($#)) || die "--tunnel-id requires a value"
@@ -759,6 +762,35 @@ EOF
   chmod 755 /usr/local/sbin/serverbridgectl
 }
 
+install_auto_update() {
+  [[ "$AUTO_UPDATE" =~ ^(0|1)$ ]] || die "SERVERBRIDGE_AUTO_UPDATE must be 0 or 1."
+  ((AUTO_UPDATE)) || return 0
+
+  chmod 755 "$NEW_RELEASE/auto-update.sh"
+  install -m 755 "$NEW_RELEASE/auto-update.sh" "$BIN_DIR/auto-update"
+
+  case "$INIT" in
+    systemd)
+      install -m 644 "$NEW_RELEASE/packaging/serverbridge-update.service" /etc/systemd/system/serverbridge-update.service
+      install -m 644 "$NEW_RELEASE/packaging/serverbridge-update.timer" /etc/systemd/system/serverbridge-update.timer
+      systemctl daemon-reload
+      systemctl enable --now serverbridge-update.timer >/dev/null
+      ;;
+    openrc)
+      if [[ -d /etc/periodic/daily ]]; then
+        install -m 755 "$NEW_RELEASE/auto-update.sh" /etc/periodic/daily/serverbridge-update
+      elif [[ -d /etc/cron.daily ]]; then
+        install -m 755 "$NEW_RELEASE/auto-update.sh" /etc/cron.daily/serverbridge-update
+      else
+        warn "Auto-update requested, but no daily cron/periodic directory exists on this OpenRC host."
+      fi
+      ;;
+    manual)
+      warn "Auto-update requested, but no supported scheduler is available."
+      ;;
+  esac
+}
+
 create_systemd_service() {
   cat > /etc/systemd/system/serverbridge.service <<EOF
 [Unit]
@@ -998,6 +1030,7 @@ else
     die "Tunnel validation failed."
 
   install_control_cli
+  install_auto_update
 
   case "$INIT" in
     systemd) create_systemd_service ;;
