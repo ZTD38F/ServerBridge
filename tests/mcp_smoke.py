@@ -11,7 +11,14 @@ from serverbridge.server import mcp
 EXPECTED={'server_info','file_stat','list_files','read_file','read_text','search_files','search_text',
 'write_file','edit_file','move_file','service_status','service_logs','service_start','service_stop','service_restart',
 'process_list','start_process','read_process_output','send_process_input','kill_process','list_sessions',
-'listening_ports','tcp_probe','http_probe','run_command'}
+'listening_ports','tcp_probe','http_probe','run_command',
+'browser_tools','browser_tabs','browser_control_state','browser_focus_tab','browser_call'}
+
+SOURCE=Path(__file__).resolve().parents[1]/'serverbridge'/'server.py'
+text=SOURCE.read_text(encoding='utf-8')
+assert "tool_name=='browser_close'" in text
+assert "_browser_mutation_guard(tool_name)" in text
+assert "_TAB_REGISTRY" in text
 
 async def main():
     with tempfile.TemporaryDirectory() as tmp:
