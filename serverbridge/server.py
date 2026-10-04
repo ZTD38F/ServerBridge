@@ -1,5 +1,5 @@
 from __future__ import annotations
-import fnmatch, itertools, os, platform, pwd, re, shutil, socket, subprocess, tempfile, time, urllib.request
+import contextlib, fcntl, fnmatch, itertools, json, os, platform, pwd, re, shutil, socket, subprocess, tempfile, time, urllib.request
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -304,5 +304,119 @@ if EXEC_ENABLED:
         return {'executable':command[0],'argument_count':len(command),'cwd':str(target),'exit_code':None if timed_out else proc.returncode,
           'timed_out':timed_out,'timeout_seconds':timeout,'duration_seconds':round(time.monotonic()-started,3),'stdout':stdout,'stderr':stderr,
           'stdout_truncated':st,'stderr_truncated':et}
+
+def _playwright_mcp_request(payload:dict[str,Any])->dict[str,Any]:
+    proc=subprocess.run(['/usr/local/bin/pw-mcp-call'],input=json.dumps(payload),text=True,capture_output=True,timeout=90,check=False)
+    if proc.returncode!=0:
+        raise RuntimeError((proc.stderr or proc.stdout or f'pw-mcp-call exit {proc.returncode}')[:4000])
+    try:return json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:raise RuntimeError('Invalid Playwright MCP response') from exc
+
+_BROWSER_LOCK=Path('/run/lock/sonoryx-browser-control.lock')
+_BROWSER_CONTROL_DIR=Path('/root/vps/browser-workstation/config/sonoryx-control')
+_BROWSER_HUMAN_ACTIVITY=_BROWSER_CONTROL_DIR/'human_activity.json'
+_BROWSER_AI_OWNER=_BROWSER_CONTROL_DIR/'ai_owner.json'
+_TAB_REGISTRY=Path('/root/vps/browser-workstation/bin/tab_registry.py')
+_BROWSER_HUMAN_QUIET_SECONDS=4.0
+_BROWSER_TOOL_META_CACHE={'ts':0.0,'read_only':{}}
+
+def _browser_human_state()->dict[str,Any]:
+    try:
+        data=json.loads(_BROWSER_HUMAN_ACTIVITY.read_text(encoding='utf-8'))
+        ts=float(data.get('ts') or 0)
+        age=max(0.0,time.time()-ts)
+        return {'active':age<_BROWSER_HUMAN_QUIET_SECONDS,'age_seconds':round(age,3),'ts':ts,
+          'source':data.get('source','live-ui'),'kind':data.get('kind','')}
+    except Exception:
+        return {'active':False,'age_seconds':None,'ts':None,'source':'live-ui','kind':''}
+
+def _browser_tool_read_only(tool_name:str)->bool:
+    now=time.monotonic()
+    cache=_BROWSER_TOOL_META_CACHE
+    if now-float(cache.get('ts') or 0)>60 or not cache.get('read_only'):
+        try:
+            data=_playwright_mcp_request({'method':'list_tools'})
+            cache['read_only']={tool.get('name'):bool((tool.get('annotations') or {}).get('read_only_hint',False))
+                for tool in data.get('tools',[]) if tool.get('name')}
+            cache['ts']=now
+        except Exception:
+            pass
+    return bool((cache.get('read_only') or {}).get(tool_name,False))
+
+def _write_ai_owner(action:str)->None:
+    _BROWSER_CONTROL_DIR.mkdir(parents=True,exist_ok=True)
+    payload={'owner':'CHATGPT','pid':os.getpid(),'action':action,'started_at':time.time()}
+    tmp=_BROWSER_AI_OWNER.with_suffix('.tmp')
+    tmp.write_text(json.dumps(payload,separators=(',',':')),encoding='utf-8')
+    os.replace(tmp,_BROWSER_AI_OWNER)
+
+@contextlib.contextmanager
+def _browser_mutation_guard(action:str):
+    _BROWSER_LOCK.parent.mkdir(parents=True,exist_ok=True)
+    _BROWSER_CONTROL_DIR.mkdir(parents=True,exist_ok=True)
+    with _BROWSER_LOCK.open('a+') as lf:
+        fcntl.flock(lf.fileno(),fcntl.LOCK_EX)
+        human=_browser_human_state()
+        if human['active']:
+            audit('browser_arbitration',action,result='blocked_human_active',details=human)
+            raise RuntimeError(f"HUMAN_ACTIVE: live browser input detected {human['age_seconds']}s ago; retry after a quiet interval")
+        _write_ai_owner(action)
+        try:
+            yield
+        finally:
+            try:_BROWSER_AI_OWNER.unlink(missing_ok=True)
+            finally:fcntl.flock(lf.fileno(),fcntl.LOCK_UN)
+
+def _tab_registry_call(*args:str)->dict[str,Any]:
+    proc=subprocess.run([str(_TAB_REGISTRY),*args],text=True,capture_output=True,timeout=15,check=False)
+    if proc.returncode!=0:
+        raise RuntimeError((proc.stderr or proc.stdout or 'tab registry failed')[:4000])
+    return json.loads(proc.stdout)
+
+@mcp.tool()
+def browser_tools()->dict[str,Any]:
+    """List browser tools exposed by the persistent Playwright MCP connected to browser.sonoryx.store."""
+    return _playwright_mcp_request({'method':'list_tools'})
+
+@mcp.tool()
+def browser_tabs()->dict[str,Any]:
+    """Return live browser tabs with stable logical aliases such as jwdocs, chatgpt, drive, or github."""
+    return _tab_registry_call('list')
+
+@mcp.tool()
+def browser_control_state()->dict[str,Any]:
+    """Return Human/AI arbitration state for the shared live browser."""
+    human=_browser_human_state()
+    try:owner=json.loads(_BROWSER_AI_OWNER.read_text(encoding='utf-8'))
+    except Exception:owner=None
+    return {'owner':'CHATGPT' if owner else ('HUMAN' if human['active'] else 'IDLE'),'human':human,'ai':owner,
+      'quiet_window_seconds':_BROWSER_HUMAN_QUIET_SECONDS}
+
+@mcp.tool()
+def browser_focus_tab(alias:str)->dict[str,Any]:
+    """Bring a logical live-browser tab alias to the front without relying on a volatile CDP target id."""
+    if not isinstance(alias,str) or not re.fullmatch(r'[A-Za-z0-9_.#-]{1,80}',alias):
+        raise ValueError('invalid tab alias')
+    with _browser_mutation_guard('focus:'+alias):
+        result=_tab_registry_call('activate',alias)
+    audit('browser_focus_tab',alias)
+    return result
+
+@mcp.tool()
+def browser_call(tool_name:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
+    """Call one browser_* tool against the persistent authorized Chrome session used by browser.sonoryx.store."""
+    if not isinstance(tool_name,str) or not re.fullmatch(r'browser_[A-Za-z0-9_]{1,80}',tool_name):
+        raise ValueError('tool_name must be a browser_* Playwright MCP tool')
+    if tool_name=='browser_close':
+        raise ValueError('browser_close is disabled to preserve the persistent browser session')
+    read_only=_browser_tool_read_only(tool_name)
+    if read_only:
+        result=_playwright_mcp_request({'tool':tool_name,'arguments':arguments or {}})
+    else:
+        with _browser_mutation_guard(tool_name):
+            result=_playwright_mcp_request({'tool':tool_name,'arguments':arguments or {}})
+    audit('browser_call',tool_name,details={'argument_keys':sorted((arguments or {}).keys()),'read_only':read_only})
+    return result
+
 
 if __name__=='__main__':mcp.run()
