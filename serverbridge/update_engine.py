@@ -61,6 +61,49 @@ def stop(pid):
     try:os.kill(int(pid),15)
     except Exception:return
 
+def is_ancestor(pid):
+    """True when pid is an ancestor of this updater process."""
+    try:target=int(pid)
+    except Exception:return False
+    cur=os.getppid();seen=set()
+    while cur>1 and cur not in seen:
+        if cur==target:return True
+        seen.add(cur)
+        try:
+            cur=int(Path(f"/proc/{cur}/stat").read_text().split()[3])
+        except Exception:
+            break
+    return False
+
+def defer_stop_after_drain(pid,generation):
+    """Retire a self-hosting previous backend after its MCP response returns."""
+    if not pid:return
+    code=r"""
+import json,os,pathlib,signal,sys,time,urllib.request
+generation,pid_s,token_path,log_path=sys.argv[1:]
+pid=int(pid_s);token=pathlib.Path(token_path).read_text().strip()
+for _ in range(120):
+    try:
+        req=urllib.request.Request("http://127.0.0.1:18766/__bridge/status",headers={"X-Bridge-Token":token})
+        with urllib.request.urlopen(req,timeout=3) as r:
+            inflight=int(json.load(r).get("inflight",{}).get(generation,0))
+        if inflight==0:
+            try:os.kill(pid,signal.SIGTERM)
+            except ProcessLookupError:pass
+            with open(log_path,"a",encoding="utf-8") as f:
+                f.write(time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())+f" deferred old backend retired pid={pid}\\n")
+            raise SystemExit(0)
+    except Exception:
+        pass
+    time.sleep(.5)
+with open(log_path,"a",encoding="utf-8") as f:
+    f.write(time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())+f" WARNING deferred old backend retirement timed out pid={pid}\\n")
+"""
+    subprocess.Popen([sys.executable,"-c",code,str(generation),str(pid),str(ROUTER_TOKEN),str(LOG)],
+        stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+        start_new_session=True,close_fds=True)
+    log(f"deferred old backend retirement scheduled pid={pid}")
+
 def write_state(phase,current,candidate,pg,pp,ppid,cp,cpid,failure="",rollback=""):
     tx=uuid.uuid4().hex
     if JOURNAL.exists():
@@ -198,6 +241,9 @@ def main():
     target,candidate,tag=stage_latest()
     if current==target:log("ok already current "+target);return
     pg,pp=route();ppid=int(BACKEND_PID.read_text().strip()) if BACKEND_PID.exists() else 0;cp=18772 if pp==18771 else 18771
+    self_hosted=is_ancestor(ppid)
+    drain_floor=1 if self_hosted else 0
+    if self_hosted:log("self-hosted MCP update detected; allowing own in-flight request during drain")
     write_state("STAGED",current,target,pg,pp,ppid,cp,0)
     status=auth_json(f"http://127.0.0.1:{pp}/__bridge/runtime-status","X-Bridge-Backend-Token",BACKEND_TOKEN)
     if int(status.get("live_process_sessions",0))>0:
@@ -214,14 +260,17 @@ def main():
         assert_compatible(oldtools,tools(ROUTER,"X-Bridge-Token",ROUTER_TOKEN));write_state("DRAINING_OLD",current,target,pg,pp,ppid,cp,p.pid)
         for _ in range(120):
             s=auth_json(ROUTER+"/__bridge/status","X-Bridge-Token",ROUTER_TOKEN)
-            if int(s.get("inflight",{}).get(pg,0))==0:break
+            if int(s.get("inflight",{}).get(pg,0))<=drain_floor:break
             time.sleep(.5)
         else:raise RuntimeError("drain timeout")
         write_state("OBSERVING",current,target,pg,pp,ppid,cp,p.pid);time.sleep(3)
         if not backend_health(cp):raise RuntimeError("candidate failed observation")
         tools(ROUTER,"X-Bridge-Token",ROUTER_TOKEN)
     except Exception as e:
-        set_route(pg,pp);stop(p.pid);write_state("FAILED_ROLLED_BACK",current,target,pg,pp,ppid,cp,p.pid,str(e),"route restored");raise
+        set_route(pg,pp);stop(p.pid)
+        if alive(ppid):
+            BACKEND_PID.write_text(str(ppid)+"\n");BACKEND_PID.chmod(0o600)
+        write_state("FAILED_ROLLED_BACK",current,target,pg,pp,ppid,cp,p.pid,str(e),"route and previous backend pointer restored");raise
     prev=ROOT/".previous.new"
     if prev.exists() or prev.is_symlink():prev.unlink()
     prev.symlink_to(Path(os.path.realpath(ROOT/"current")));os.replace(prev,ROOT/"previous")
@@ -229,7 +278,9 @@ def main():
     if cur.exists() or cur.is_symlink():cur.unlink()
     cur.symlink_to(candidate);os.replace(cur,ROOT/"current")
     BACKEND_PID.write_text(str(p.pid)+"\n");BACKEND_PID.chmod(0o600)
-    write_state("COMMITTED",current,target,pg,pp,ppid,cp,p.pid);stop(ppid)
+    write_state("COMMITTED",current,target,pg,pp,ppid,cp,p.pid)
+    if self_hosted:defer_stop_after_drain(ppid,pg)
+    else:stop(ppid)
     update_supervisor(candidate);update_transport(candidate)
     log("ok seamless runtime activation "+target)
 

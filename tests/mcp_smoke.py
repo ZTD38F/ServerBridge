@@ -20,6 +20,14 @@ assert "tool_name=='browser_close'" in text
 assert "_browser_mutation_guard(tool_name)" in text
 assert "_TAB_REGISTRY" in text
 
+UPDATE_SOURCE=Path(__file__).resolve().parents[1]/'serverbridge'/'update_engine.py'
+update_text=UPDATE_SOURCE.read_text(encoding='utf-8')
+assert 'self_hosted=is_ancestor(ppid)' in update_text
+assert 'drain_floor=1 if self_hosted else 0' in update_text
+assert '<=drain_floor' in update_text
+assert 'defer_stop_after_drain(ppid,pg)' in update_text
+assert 'route and previous backend pointer restored' in update_text
+
 async def main():
     with tempfile.TemporaryDirectory() as tmp:
         os.environ['SERVERBRIDGE_ALLOWED_ROOTS']=tmp
