@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT=Path("/opt/serverbridge"); CONFIG=Path("/etc/serverbridge"); STATE=Path("/var/lib/serverbridge")
 ROUTE=STATE/"route.json"; PIDFILE=STATE/"backend.pid"; ROUTER_TOKEN=CONFIG/"router_token"; BACKEND_TOKEN=CONFIG/"backend_token"
-LOG=Path("/var/log/serverbridge-backend.log"); INFLIGHT={}; LOCK=threading.Lock(); MAX_BODY=8_000_000
+LOG=Path("/var/log/serverbridge-backend.log"); INFLIGHT={}; LOCK=threading.Lock(); BACKEND_LOCK=threading.Lock(); MAX_BODY=8_000_000
 HOP={"connection","keep-alive","proxy-authenticate","proxy-authorization","te","trailers","transfer-encoding","upgrade"}
 
 def secret(p):
@@ -30,24 +30,34 @@ def backend_health(port):
     except Exception:return False
 
 def ensure_backend():
-    generation,port=route()
-    if PIDFILE.exists():
-        try:
-            pid=int(PIDFILE.read_text().strip())
-            if alive(pid) and backend_health(port): return pid
+    # The router is long-lived while the active backend can die independently.
+    # Serialize recovery so concurrent health checks never spawn duplicate backends.
+    with BACKEND_LOCK:
+        generation,port=route()
+        if PIDFILE.exists():
+            try:
+                pid=int(PIDFILE.read_text().strip())
+                if alive(pid) and backend_health(port): return pid
+            except Exception: pass
+        py=ROOT/"current"/".venv"/"bin"/"python"
+        if not py.exists(): raise RuntimeError("current runtime missing")
+        env=os.environ.copy();env["SERVERBRIDGE_BACKEND_TOKEN_FILE"]=str(BACKEND_TOKEN)
+        LOG.parent.mkdir(parents=True,exist_ok=True)
+        fh=LOG.open("ab",buffering=0)
+        p=subprocess.Popen([str(py),"-m","serverbridge.http_runtime","--port",str(port)],stdout=fh,stderr=subprocess.STDOUT,stdin=subprocess.DEVNULL,start_new_session=True,env=env,cwd=str(ROOT/"current"))
+        PIDFILE.write_text(str(p.pid)+"\n");PIDFILE.chmod(0o600)
+        for _ in range(40):
+            if p.poll() is not None: break
+            if backend_health(port): return p.pid
+            time.sleep(.25)
+        raise RuntimeError("backend failed to become healthy")
+
+def watch_backend(interval=5.0):
+    """Continuously recover a dead active backend without restarting the tunnel."""
+    while True:
+        try: ensure_backend()
         except Exception: pass
-    py=ROOT/"current"/".venv"/"bin"/"python"
-    if not py.exists(): raise RuntimeError("current runtime missing")
-    env=os.environ.copy();env["SERVERBRIDGE_BACKEND_TOKEN_FILE"]=str(BACKEND_TOKEN)
-    LOG.parent.mkdir(parents=True,exist_ok=True)
-    fh=LOG.open("ab",buffering=0)
-    p=subprocess.Popen([str(py),"-m","serverbridge.http_runtime","--port",str(port)],stdout=fh,stderr=subprocess.STDOUT,stdin=subprocess.DEVNULL,start_new_session=True,env=env,cwd=str(ROOT/"current"))
-    PIDFILE.write_text(str(p.pid)+"\n");PIDFILE.chmod(0o600)
-    for _ in range(40):
-        if p.poll() is not None: break
-        if backend_health(port): return p.pid
-        time.sleep(.25)
-    raise RuntimeError("backend failed to become healthy")
+        time.sleep(interval)
 
 def add(g,d):
     with LOCK: INFLIGHT[g]=max(0,INFLIGHT.get(g,0)+d)
@@ -105,5 +115,6 @@ class H(BaseHTTPRequestHandler):
 
 def main():
     STATE.mkdir(parents=True,exist_ok=True);secret(ROUTER_TOKEN);secret(BACKEND_TOKEN);route();ensure_backend()
+    threading.Thread(target=watch_backend,name="serverbridge-backend-watchdog",daemon=True).start()
     s=ThreadingHTTPServer(("127.0.0.1",18766),H);s.daemon_threads=True;s.serve_forever()
 if __name__=="__main__":main()
