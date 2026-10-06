@@ -125,14 +125,16 @@ jobs:
         run: |
           python - <<'PY'
           import json
-          import re
           from pathlib import Path
           import serverbridge
 
           project = Path("pyproject.toml").read_text()
-          match = re.search(r'^version\\s*=\\s*"([^"]+)"', project, re.M)
-          assert match, "project.version missing"
-          expected = match.group(1)
+          version_line = next(
+              (line for line in project.splitlines() if line.strip().startswith("version =")),
+              None,
+          )
+          assert version_line, "project.version missing"
+          expected = version_line.split("=", 1)[1].strip().strip('"')
           manifest = json.loads(Path("plugin.json").read_text())
           assert serverbridge.__version__ == expected
           assert manifest["version"] == expected
