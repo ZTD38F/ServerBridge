@@ -125,12 +125,15 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import tomllib
           from pathlib import Path
           import serverbridge
 
-          assert serverbridge.__version__
-          json.loads(Path("plugin.json").read_text())
-          print("Manifest smoke test passed")
+          expected = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          manifest = json.loads(Path("plugin.json").read_text())
+          assert serverbridge.__version__ == expected
+          assert manifest["version"] == expected
+          print(f"Manifest/version smoke test passed: {expected}")
           PY
 
 
