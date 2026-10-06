@@ -118,6 +118,9 @@ jobs:
       - name: Supervisor watchdog recovery test
         run: python tests/supervisor_watchdog.py
 
+      - name: Updater reconciliation test
+        run: python tests/update_engine_reconcile.py
+
       - name: Manifest smoke test
         run: |
           python - <<'PY'
