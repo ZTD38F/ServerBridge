@@ -115,6 +115,9 @@ jobs:
       - name: Security boundary smoke test
         run: python tests/security_smoke.py
 
+      - name: Supervisor watchdog recovery test
+        run: python tests/supervisor_watchdog.py
+
       - name: Manifest smoke test
         run: |
           python - <<'PY'
