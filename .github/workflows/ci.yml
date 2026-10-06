@@ -125,11 +125,10 @@ jobs:
           from pathlib import Path
           import serverbridge
 
-          import tomllib
+          from importlib.metadata import version as distribution_version
 
-          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
           plugin = json.loads(Path("plugin.json").read_text())
-          expected = pyproject["project"]["version"]
+          expected = distribution_version("serverbridge-mcp")
           assert serverbridge.__version__ == expected, (serverbridge.__version__, expected)
           assert plugin["version"] == expected, (plugin["version"], expected)
           print(f"Manifest/version smoke test passed: {expected}")
