@@ -5,7 +5,7 @@ from pathlib import Path
 
 REPO="ZTD38F/ServerBridge"
 ROOT=Path("/opt/serverbridge"); CONFIG=Path("/etc/serverbridge"); STATE=Path("/var/lib/serverbridge"); BIN=Path("/usr/local/lib/serverbridge")
-ROUTE=STATE/"route.json"; JOURNAL=STATE/"update.json"; BACKEND_PID=STATE/"backend.pid"
+ROUTE=STATE/"route.json"; JOURNAL=STATE/"update.json"; BACKEND_PID=STATE/"backend.pid"; SUPERVISOR_GENERATION=STATE/"supervisor-generation"
 ROUTER_TOKEN=CONFIG/"router_token"; BACKEND_TOKEN=CONFIG/"backend_token"
 LOCK=Path("/run/lock/serverbridge-seamless-update.lock"); LOG=Path("/var/log/serverbridge-update.log")
 ROUTER="http://127.0.0.1:18766"
@@ -180,22 +180,34 @@ def backend_health(port):
     except Exception:return False
 
 def update_supervisor(candidate):
-    old=ROOT/"current"/"serverbridge"/"supervisor.py";new=candidate/"serverbridge"/"supervisor.py"
-    if old.exists() and hashlib.sha256(old.read_bytes()).digest()==hashlib.sha256(new.read_bytes()).digest():return
+    generation=candidate.name
+    try:
+        if SUPERVISOR_GENERATION.read_text().strip()==generation:return True
+    except Exception:pass
     s=auth_json(ROUTER+"/__bridge/status","X-Bridge-Token",ROUTER_TOKEN)
-    if sum(int(v) for v in s.get("inflight",{}).values()):log("supervisor update deferred: inflight");return
+    if sum(int(v) for v in s.get("inflight",{}).values()):
+        log("supervisor update deferred: inflight")
+        return False
     subprocess.run(["systemctl","restart","serverbridge-supervisor.service"],check=True)
     for _ in range(30):
         try:
-            if auth_json(ROUTER+"/__bridge/healthz","X-Bridge-Token",ROUTER_TOKEN).get("ok"):return
+            if auth_json(ROUTER+"/__bridge/healthz","X-Bridge-Token",ROUTER_TOKEN).get("ok"):
+                SUPERVISOR_GENERATION.write_text(generation+"\n");SUPERVISOR_GENERATION.chmod(0o600)
+                return True
         except Exception:pass
         time.sleep(.2)
     raise RuntimeError("supervisor restart failed")
 
+def normalize_transport_version(raw):
+    token=(raw or "").strip().split()[0] if (raw or "").strip() else ""
+    token=token.split("+",1)[0]
+    if not token:return ""
+    return token if token.startswith("v") else "v"+token
+
 def update_transport(candidate):
     pin=(candidate/"TUNNEL_CLIENT_VERSION").read_text().strip()
     link=BIN/"tunnel-client"
-    try:current=subprocess.check_output([str(link),"--version"],text=True).split()[0];current="v"+current
+    try:current=normalize_transport_version(subprocess.check_output([str(link),"--version"],text=True))
     except Exception:current=""
     if pin==current:return
     log(f"TRANSPORT_UPDATE {current}->{pin}")
@@ -211,7 +223,8 @@ def update_transport(candidate):
         import zipfile
         with zipfile.ZipFile(z) as q:q.extractall(td/"x")
         binary=next((td/"x").rglob("tunnel-client"))
-        versioned=BIN/f"tunnel-client-{pin}";shutil.copy2(binary,versioned);versioned.chmod(0o755)
+        versioned=BIN/f"tunnel-client-{pin}";staged=BIN/f".tunnel-client-{pin}.new"
+        shutil.copy2(binary,staged);staged.chmod(0o755);os.replace(staged,versioned)
     previous=Path(os.path.realpath(link))
     subprocess.run(["systemctl","stop","serverbridge.service"],check=True)
     tmp=BIN/".tunnel-client.new"
@@ -239,7 +252,9 @@ def main():
     STATE.mkdir(parents=True,exist_ok=True);recover()
     current=os.path.basename(os.path.realpath(ROOT/"current"))
     target,candidate,tag=stage_latest()
-    if current==target:log("ok already current "+target);return
+    if current==target:
+        update_supervisor(candidate);update_transport(candidate)
+        log("ok already current "+target);return
     pg,pp=route();ppid=int(BACKEND_PID.read_text().strip()) if BACKEND_PID.exists() else 0;cp=18772 if pp==18771 else 18771
     self_hosted=is_ancestor(ppid)
     drain_floor=1 if self_hosted else 0
