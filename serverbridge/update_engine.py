@@ -293,7 +293,7 @@ def main():
     if cur.exists() or cur.is_symlink():cur.unlink()
     cur.symlink_to(candidate);os.replace(cur,ROOT/"current")
     BACKEND_PID.write_text(str(p.pid)+"\n");BACKEND_PID.chmod(0o600)
-    write_state("COMMITTED",current,target,pg,pp,ppid,cp,p.pid)
+    write_state("COMMITTED",target,target,pg,pp,ppid,cp,p.pid)
     if self_hosted:defer_stop_after_drain(ppid,pg)
     else:stop(ppid)
     update_supervisor(candidate);update_transport(candidate)
