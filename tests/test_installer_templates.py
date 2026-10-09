@@ -25,6 +25,8 @@ assert "update|update-now)" in template
 assert 'serverbridge.update_engine' in template
 
 assert "serverbridge-supervisor.service" in text
+assert "Requires=serverbridge-supervisor.service" not in text
+assert "Wants=network-online.target serverbridge-supervisor.service" in text
 assert "--mcp.server-url http://127.0.0.1:18766/mcp" in text
 assert "--mcp.extra-headers" in text
 assert "route.json" in text
