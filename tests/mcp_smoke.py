@@ -33,9 +33,12 @@ async def main():
         os.environ['SERVERBRIDGE_ALLOWED_ROOTS']=tmp
         os.environ['SERVERBRIDGE_PROTECTED_PATHS']=''
         async with Client(mcp,raise_exceptions=True) as client:
-            names={t.name for t in (await client.list_tools()).tools}
+            tools=(await client.list_tools()).tools
+            names={t.name for t in tools}
             missing=EXPECTED-names
             assert not missing,sorted(missing)
+            blank_descriptions=sorted(t.name for t in tools if t.name in EXPECTED and not (t.description or '').strip())
+            assert not blank_descriptions, f"tools without descriptions: {blank_descriptions}"
             p=Path(tmp)/'a.txt'; p.write_text('alpha\nbeta\n',encoding='utf-8')
             for name,args in [
               ('file_stat',{'path':str(p)}),
