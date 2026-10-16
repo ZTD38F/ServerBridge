@@ -45,6 +45,7 @@ def _service_name(name:str)->str:
 
 @mcp.tool()
 def server_info()->dict[str,Any]:
+    """Return sanitized host/runtime/capability information for ServerBridge; use before relying on exec, write, process, or service controls."""
     usage=shutil.disk_usage('/')
     try: uptime=float(Path('/proc/uptime').read_text().split()[0])
     except Exception: uptime=None
@@ -57,6 +58,7 @@ def server_info()->dict[str,Any]:
 
 @mcp.tool()
 def file_stat(path:str)->dict[str,Any]:
+    """Inspect one existing path and return type, size, mode, ownership, mtime, and SHA-256 for regular files."""
     p=resolve_existing(path); st=p.lstat()
     kind='symlink' if p.is_symlink() else 'dir' if p.is_dir() else 'file' if p.is_file() else 'other'
     return {'path':str(p),'type':kind,'size':st.st_size,'mode':oct(st.st_mode & 0o7777),'uid':st.st_uid,'gid':st.st_gid,
@@ -64,6 +66,7 @@ def file_stat(path:str)->dict[str,Any]:
 
 @mcp.tool()
 def list_files(path:str='.',limit:int=200,include_hidden:bool=True)->dict[str,Any]:
+    """List one directory without reading file contents; use for bounded path discovery."""
     target=resolve_existing(path)
     if not target.is_dir(): raise NotADirectoryError(str(target))
     limit=max(1,min(int(limit),2000)); entries=[]
@@ -81,6 +84,7 @@ def list_files(path:str='.',limit:int=200,include_hidden:bool=True)->dict[str,An
 
 @mcp.tool()
 def read_file(path:str,offset:int=0,length:int=1000,tail:bool=False)->dict[str,Any]:
+    """Read a line window or tail from a text file, with pagination metadata and SHA-256."""
     p=resolve_existing(path)
     if not p.is_file(): raise FileNotFoundError(str(p))
     length=max(1,min(int(length),10000))
@@ -99,6 +103,7 @@ def read_file(path:str,offset:int=0,length:int=1000,tail:bool=False)->dict[str,A
 
 @mcp.tool()
 def read_text(path:str,max_bytes:int=131072)->dict[str,Any]:
+    """Read a bounded UTF-8 text prefix with size, truncation state, and SHA-256."""
     p=resolve_existing(path)
     if not p.is_file(): raise FileNotFoundError(str(p))
     cap=max(1,min(int(max_bytes),4*1024*1024)); size=p.stat().st_size
@@ -108,6 +113,7 @@ def read_text(path:str,max_bytes:int=131072)->dict[str,Any]:
 
 @mcp.tool()
 def search_files(root:str='.',pattern:str='*',max_results:int=200,max_depth:int=20)->dict[str,Any]:
+    """Find file or directory names below a root using a glob pattern with bounded depth and result count."""
     base=resolve_existing(root)
     if not base.is_dir(): raise NotADirectoryError(str(base))
     max_results=max(1,min(int(max_results),2000)); max_depth=max(0,min(int(max_depth),100)); results=[]
@@ -124,6 +130,7 @@ def search_files(root:str='.',pattern:str='*',max_results:int=200,max_depth:int=
 
 @mcp.tool()
 def search_text(root:str,query:str,glob:str='*',regex:bool=False,case_sensitive:bool=False,max_results:int=200)->dict[str,Any]:
+    """Search bounded text files below a root by literal text or regex and return file, line number, and matching text."""
     base=resolve_existing(root); max_results=max(1,min(int(max_results),2000)); results=[]
     flags=0 if case_sensitive else re.IGNORECASE
     rx=re.compile(query,flags) if regex else None
@@ -144,12 +151,14 @@ def search_text(root:str,query:str,glob:str='*',regex:bool=False,case_sensitive:
 if WRITE_ENABLED:
     @mcp.tool()
     def write_file(path:str,content:str,expected_sha256:str|None=None)->dict[str,Any]:
+        """Atomically create or replace a text file. Use expected_sha256 to guard overwrites against stale state."""
         p=resolve_write(path); before=sha256_file(p) if p.exists() and p.is_file() else None
         result=atomic_write(p,content.encode('utf-8'),expected_sha256); audit('write_file',str(p),details={'before_sha256':before,'after_sha256':result['sha256']})
         return result
 
     @mcp.tool()
     def edit_file(path:str,old_text:str,new_text:str,expected_replacements:int=1,expected_sha256:str|None=None)->dict[str,Any]:
+        """Atomically replace exact text in an existing UTF-8 file with replacement-count and optional SHA-256 guards."""
         p=resolve_existing(path)
         if not p.is_file(): raise FileNotFoundError(str(p))
         text=p.read_text(encoding='utf-8',errors='strict'); count=text.count(old_text)
@@ -160,6 +169,7 @@ if WRITE_ENABLED:
 
     @mcp.tool()
     def move_file(source:str,destination:str)->dict[str,Any]:
+        """Move or rename one path inside the allowed roots. This changes filesystem state and does not merge content."""
         src=resolve_existing(source); dst=resolve_write(destination); dst.parent.mkdir(parents=True,exist_ok=True)
         os.replace(src,dst); audit('move_file',str(dst),details={'source':str(src)}); return {'source':str(src),'destination':str(dst)}
 
@@ -174,6 +184,7 @@ def _service_action(name:str,action:str)->dict[str,Any]:
 
 @mcp.tool()
 def service_status(name:str)->dict[str,Any]:
+    """Read service state and detailed status without changing the service."""
     name=_service_name(name); init=_init_system()
     if init=='systemd':
         active=subprocess.run(['systemctl','is-active',name],text=True,capture_output=True,check=False,timeout=20)
@@ -196,6 +207,7 @@ def service_status(name:str)->dict[str,Any]:
 
 @mcp.tool()
 def service_logs(name:str,lines:int=100)->dict[str,Any]:
+    """Read recent service journal lines without changing service state."""
     name=_service_name(name); lines=max(1,min(int(lines),2000))
     if _init_system()=='systemd' and shutil.which('journalctl'):
         p=subprocess.run(['journalctl','-u',name,'-n',str(lines),'--no-pager','--output=short-iso'],text=True,capture_output=True,check=False,timeout=60)
@@ -204,11 +216,17 @@ def service_logs(name:str,lines:int=100)->dict[str,Any]:
 
 if SERVICE_CONTROL_ENABLED:
     @mcp.tool()
-    def service_start(name:str)->dict[str,Any]: return _service_action(name,'start')
+    def service_start(name:str)->dict[str,Any]:
+        """Start one named system service. This changes server state."""
+        return _service_action(name,'start')
     @mcp.tool()
-    def service_stop(name:str)->dict[str,Any]: return _service_action(name,'stop')
+    def service_stop(name:str)->dict[str,Any]:
+        """Stop one named system service. This changes server state and may interrupt availability."""
+        return _service_action(name,'stop')
     @mcp.tool()
-    def service_restart(name:str)->dict[str,Any]: return _service_action(name,'restart')
+    def service_restart(name:str)->dict[str,Any]:
+        """Restart one named system service. This changes server state and may briefly interrupt availability."""
+        return _service_action(name,'restart')
 
 def _read_process(pid:int)->dict[str,Any]|None:
     try:
@@ -229,6 +247,7 @@ def _read_process(pid:int)->dict[str,Any]|None:
 
 @mcp.tool()
 def process_list(limit:int=200)->dict[str,Any]:
+    """List host processes sorted by resident memory without changing process state."""
     limit=max(1,min(int(limit),2000)); items=[]
     for e in Path('/proc').iterdir():
         if e.name.isdigit():
@@ -240,30 +259,39 @@ def process_list(limit:int=200)->dict[str,Any]:
 if PROCESS_ENABLED:
     @mcp.tool()
     def start_process(argv:list[str],cwd:str='/',)->dict[str,Any]:
+        """Start a managed interactive process session with a sanitized environment and return its session ID."""
         command=_command_argv(argv); target=resolve_existing(cwd)
         if not target.is_dir(): raise NotADirectoryError(str(target))
         result=sessions.start(command,str(target),_exec_environment()); audit('start_process',str(result['pid']),details={'executable':command[0]}); return result
     @mcp.tool()
     def read_process_output(session_id:str,max_lines:int=200)->dict[str,Any]:
+        """Read bounded stdout/stderr from a managed process session; secrets are redacted where recognized."""
         result=sessions.read(session_id,max_lines)
         result['stdout']=redact(result.get('stdout','')); result['stderr']=redact(result.get('stderr',''))
         return result
     @mcp.tool()
-    def send_process_input(session_id:str,data:str)->dict[str,Any]: return sessions.send(session_id,data)
+    def send_process_input(session_id:str,data:str)->dict[str,Any]:
+        """Send text to the stdin of a managed process session. This can cause that process to take actions."""
+        return sessions.send(session_id,data)
     @mcp.tool()
     def kill_process(session_id:str,force:bool=False)->dict[str,Any]:
+        """Terminate a managed process session; force=True requests stronger termination."""
         result=sessions.terminate(session_id,force); audit('kill_process',session_id,details={'force':force}); return result
     @mcp.tool()
-    def list_sessions()->dict[str,Any]: return {'sessions':sessions.list_all()}
+    def list_sessions()->dict[str,Any]:
+        """List process sessions created and tracked by ServerBridge."""
+        return {'sessions':sessions.list_all()}
 
 @mcp.tool()
 def listening_ports(limit:int=500)->dict[str,Any]:
+    """List listening TCP/UDP sockets using the host ss utility; read-only."""
     p=subprocess.run(['ss','-lntup'],text=True,capture_output=True,check=False,timeout=15) if shutil.which('ss') else None
     if p is None: raise RuntimeError('ss is not available')
     out,tr=truncate(p.stdout,max(4096,min(MAX_CAPTURE,int(limit)*300))); return {'output':out,'truncated':tr,'exit_code':p.returncode}
 
 @mcp.tool()
 def tcp_probe(host:str,port:int,timeout_seconds:float=5.0)->dict[str,Any]:
+    """Test whether a TCP connection can be established to a host and port, returning latency and error state."""
     started=time.monotonic()
     try:
         with socket.create_connection((host,int(port)),timeout=max(.1,min(float(timeout_seconds),30))):
@@ -272,6 +300,7 @@ def tcp_probe(host:str,port:int,timeout_seconds:float=5.0)->dict[str,Any]:
 
 @mcp.tool()
 def http_probe(url:str,timeout_seconds:float=10.0)->dict[str,Any]:
+    """Issue a bounded HTTP GET probe and return status, latency, final URL, and content type without returning the body."""
     started=time.monotonic(); req=urllib.request.Request(url,method='GET',headers={'User-Agent':'ServerBridge/1'})
     try:
         with urllib.request.urlopen(req,timeout=max(.1,min(float(timeout_seconds),30))) as resp:
@@ -282,6 +311,7 @@ def http_probe(url:str,timeout_seconds:float=10.0)->dict[str,Any]:
 if EXEC_ENABLED:
     @mcp.tool()
     def run_command(argv:list[str],cwd:str='/',timeout_seconds:int=120)->dict[str,Any]:
+        """Run a bounded non-interactive command as the ServerBridge OS user with a sanitized environment. The command may change server state; stdout/stderr are captured."""
         command=_command_argv(argv); target=resolve_existing(cwd)
         if not target.is_dir():raise NotADirectoryError(str(target))
         timeout=max(1,min(int(timeout_seconds),EXEC_MAX_TIMEOUT)); started=time.monotonic()
