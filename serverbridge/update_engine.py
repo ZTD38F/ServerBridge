@@ -53,8 +53,17 @@ def set_route(g,p):
     tmp=ROUTE.with_suffix(".tmp");tmp.write_text(json.dumps({"generation":g,"port":p},separators=(",",":"))+"\n");os.replace(tmp,ROUTE);ROUTE.chmod(0o600)
 
 def alive(pid):
-    try:os.kill(int(pid),0);return True
-    except Exception:return False
+    """Return False for dead or zombie processes, including unreaped children."""
+    try:
+        number = int(pid)
+        if number <= 1:
+            return False
+        os.kill(number, 0)
+        raw = Path(f"/proc/{number}/stat").read_text(encoding="ascii")
+        state = raw.rsplit(")", 1)[1].split()[0]
+        return state not in {"Z", "X", "x"}
+    except (OSError, ValueError, IndexError):
+        return False
 
 def stop(pid):
     if not pid:return
@@ -104,6 +113,21 @@ with open(log_path,"a",encoding="utf-8") as f:
         start_new_session=True,close_fds=True)
     log(f"deferred old backend retirement scheduled pid={pid}")
 
+_SAFE_UPDATE_REASONS = frozenset({
+    "",
+    "candidate health failed",
+    "route and previous backend pointer restored",
+    "interrupted update recovered",
+})
+
+
+def _safe_update_reason(reason):
+    """Persist approved non-sensitive reasons; never store arbitrary exception messages."""
+    if isinstance(reason, str) and reason in _SAFE_UPDATE_REASONS:
+        return reason
+    return "dynamic_failure_detail_redacted"
+
+
 def write_state(phase,current,candidate,pg,pp,ppid,cp,cpid,failure="",rollback=""):
     tx=uuid.uuid4().hex
     if JOURNAL.exists():
@@ -111,7 +135,7 @@ def write_state(phase,current,candidate,pg,pp,ppid,cp,cpid,failure="",rollback="
         except Exception:pass
     d={"transaction_id":tx,"update_kind":"RUNTIME_UPDATE","phase":phase,"current_generation":current,"candidate_generation":candidate,
        "previous_generation":pg,"previous_port":pp,"previous_pid":ppid,"candidate_port":cp,"candidate_pid":cpid,
-       "failure_reason":failure,"rollback_reason":rollback,"updated_at":int(time.time())}
+       "failure_reason":_safe_update_reason(failure),"rollback_reason":_safe_update_reason(rollback),"updated_at":int(time.time())}
     tmp=JOURNAL.with_suffix(".tmp");tmp.write_text(json.dumps(d,separators=(",",":"))+"\n");os.replace(tmp,JOURNAL);JOURNAL.chmod(0o600)
 
 def recover():
