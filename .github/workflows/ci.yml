@@ -112,6 +112,9 @@ jobs:
       - name: Real MCP smoke test
         run: python tests/mcp_smoke.py
 
+      - name: Nested credential audit redaction regression
+        run: python -m unittest discover -s tests -p test_core_audit_redaction.py -v
+
       - name: Security boundary smoke test
         run: python tests/security_smoke.py
 
