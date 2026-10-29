@@ -20,8 +20,17 @@ def route():
     return g,p
 
 def alive(pid):
-    try: os.kill(int(pid),0);return True
-    except Exception:return False
+    """Return False for dead or zombie processes, including unreaped children."""
+    try:
+        number = int(pid)
+        if number <= 1:
+            return False
+        os.kill(number, 0)
+        raw = Path(f"/proc/{number}/stat").read_text(encoding="ascii")
+        state = raw.rsplit(")", 1)[1].split()[0]
+        return state not in {"Z", "X", "x"}
+    except (OSError, ValueError, IndexError):
+        return False
 
 def backend_health(port):
     req=urllib.request.Request(f"http://127.0.0.1:{port}/healthz",headers={"X-Bridge-Backend-Token":secret(BACKEND_TOKEN)})
