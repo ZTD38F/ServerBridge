@@ -173,6 +173,11 @@ assert_test() {
   fi
 }
 
+if ! test -L "$INSTALL_ROOT/current"; then
+  echo "DIAGNOSTIC: expected installer current symlink absent after successful install" >&2
+  ls -ld "$ROOT" "$INSTALL_ROOT" "$INSTALL_ROOT/releases" "$INSTALL_ROOT/current" 2>&1 || true
+  find "$INSTALL_ROOT" -maxdepth 2 -mindepth 1 -printf '%p %y\n' 2>/dev/null | head -n 30 >&2 || true
+fi
 assert_test "current release symlink missing" test -L "$INSTALL_ROOT/current"
 assert_test "tunnel-client symlink/binary missing" test -x "$BIN_DIR/tunnel-client"
 assert_test "serverbridgectl missing" test -x /usr/local/sbin/serverbridgectl
