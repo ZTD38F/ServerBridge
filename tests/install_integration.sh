@@ -173,8 +173,13 @@ assert_test() {
   fi
 }
 
-assert_test "current release symlink missing" test -L "$INSTALL_ROOT/current"
-assert_test "tunnel-client symlink/binary missing" test -x "$BIN_DIR/tunnel-client"
+if ! sudo test -L "$INSTALL_ROOT/current"; then
+  echo "DIAGNOSTIC: expected installer current symlink absent after successful install" >&2
+  sudo ls -ld "$ROOT" "$INSTALL_ROOT" "$INSTALL_ROOT/releases" "$INSTALL_ROOT/current" 2>&1 || true
+  find "$INSTALL_ROOT" -maxdepth 2 -mindepth 1 -printf '%p %y\n' 2>/dev/null | head -n 30 >&2 || true
+fi
+assert_test "current release symlink missing" sudo test -L "$INSTALL_ROOT/current"
+assert_test "tunnel-client symlink/binary missing" sudo test -x "$BIN_DIR/tunnel-client"
 assert_test "serverbridgectl missing" test -x /usr/local/sbin/serverbridgectl
 assert_test "runtime.env missing" sudo test -f "$CONFIG_DIR/runtime.env"
 assert_test "serverbridge.env missing" sudo test -f "$CONFIG_DIR/serverbridge.env"
@@ -186,7 +191,7 @@ assert_test "supervisor unit missing" sudo test -f /etc/systemd/system/serverbri
 assert_test "transport unit missing" sudo test -f /etc/systemd/system/serverbridge.service
 assert_test "legacy stdio profile should not be created" sudo test ! -f "$CONFIG_DIR/tunnel-client/serverbridge.yaml"
 
-old_current="$(readlink -f "$INSTALL_ROOT/current")"
+old_current="$(sudo readlink -f "$INSTALL_ROOT/current")"
 
 echo "== forced failed update =="
 set +e
@@ -200,7 +205,7 @@ if ((rc == 0)); then
   exit 1
 fi
 
-new_current="$(readlink -f "$INSTALL_ROOT/current")"
+new_current="$(sudo readlink -f "$INSTALL_ROOT/current")"
 [[ "$new_current" == "$old_current" ]] || {
   cat /tmp/serverbridge-failed-update.log >&2
   echo "Rollback did not restore the previous current release." >&2
