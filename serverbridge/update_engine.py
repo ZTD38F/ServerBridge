@@ -53,8 +53,17 @@ def set_route(g,p):
     tmp=ROUTE.with_suffix(".tmp");tmp.write_text(json.dumps({"generation":g,"port":p},separators=(",",":"))+"\n");os.replace(tmp,ROUTE);ROUTE.chmod(0o600)
 
 def alive(pid):
-    try:os.kill(int(pid),0);return True
-    except Exception:return False
+    """Return False for dead or zombie processes, including unreaped children."""
+    try:
+        number = int(pid)
+        if number <= 1:
+            return False
+        os.kill(number, 0)
+        raw = Path(f"/proc/{number}/stat").read_text(encoding="ascii")
+        state = raw.rsplit(")", 1)[1].split()[0]
+        return state not in {"Z", "X", "x"}
+    except (OSError, ValueError, IndexError):
+        return False
 
 def stop(pid):
     if not pid:return
