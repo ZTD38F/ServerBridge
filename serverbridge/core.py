@@ -105,10 +105,31 @@ def atomic_write(path: Path, data: bytes, expected_sha256: str|None=None) -> dic
         except FileNotFoundError: pass
     return {'path':str(path),'size':len(data),'sha256':sha256_file(path)}
 
+_SENSITIVE_AUDIT_KEYS = {
+    "password", "passwd", "passphrase", "secret", "token", "api_key",
+    "apikey", "authorization", "cookie", "credential", "private_key",
+    "lease_token", "idempotency_key", "access_key", "client_secret",
+}
+
 def _redact_obj(value: Any) -> Any:
-    if isinstance(value,str): return redact(value)
-    if isinstance(value,dict): return {str(k):_redact_obj(v) for k,v in value.items()}
-    if isinstance(value,(list,tuple)): return [_redact_obj(v) for v in value]
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, item in value.items():
+            label = str(key)
+            normalized = label.casefold().replace("-", "_")
+            sensitive = (
+                normalized in _SENSITIVE_AUDIT_KEYS
+                or normalized.endswith((
+                    "_password", "_secret", "_token", "_api_key",
+                    "_private_key", "_authorization", "_cookie", "_credential",
+                ))
+            )
+            sanitized[label] = "[REDACTED]" if sensitive else _redact_obj(item)
+        return sanitized
+    if isinstance(value, (list, tuple)):
+        return [_redact_obj(item) for item in value]
     return value
 
 def audit(tool: str, target: str, result: str='ok', details: dict[str,Any]|None=None) -> None:
