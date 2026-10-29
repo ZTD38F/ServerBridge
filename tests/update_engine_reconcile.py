@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -79,10 +80,47 @@ def test_pid_liveness_rejects_unreaped_zombie() -> None:
     finally:
         os.waitpid(pid, 0)
 
+
+def test_update_metadata_never_includes_dynamic_exception_text() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        original = update_engine.JOURNAL
+        update_engine.JOURNAL = Path(td) / "update.json"
+        try:
+            # Deliberately fake fixtures; no real secret values.
+            for suspect in (
+                "Bearer SYNTHETIC_TOKEN",
+                "password=synthetic-only",
+                "sk-proj-EXAMPLE-NOT-REAL",
+                "https://fake.invalid/?key=SYNTHETIC",
+                "X-Api-Key: SYNTHETIC",
+            ):
+                update_engine.write_state(
+                    "FAILED_ROLLED_BACK", "a" * 40, "b" * 40,
+                    "c" * 40, 18771, 111, 18772, 222,
+                    failure=suspect, rollback=suspect,
+                )
+                raw = update_engine.JOURNAL.read_text()
+                assert suspect not in raw
+                value = json.loads(raw)
+                assert value["failure_reason"] == "dynamic_failure_detail_redacted"
+                assert value["rollback_reason"] == "dynamic_failure_detail_redacted"
+            for allowed in update_engine._SAFE_UPDATE_REASONS:
+                update_engine.write_state(
+                    "TESTED", "a" * 40, "b" * 40,
+                    "c" * 40, 18771, 111, 18772, 222,
+                    failure=allowed, rollback=allowed,
+                )
+                value = json.loads(update_engine.JOURNAL.read_text())
+                assert value["failure_reason"] == allowed
+                assert value["rollback_reason"] == allowed
+        finally:
+            update_engine.JOURNAL = original
+
 def main() -> None:
     test_transport_version_normalization()
     test_supervisor_generation_marker()
     test_pid_liveness_rejects_unreaped_zombie()
+    test_update_metadata_never_includes_dynamic_exception_text()
     print("Updater reconciliation tests passed")
 
 
