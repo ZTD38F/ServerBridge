@@ -49,9 +49,40 @@ def test_supervisor_generation_marker() -> None:
             update_engine.subprocess.run = old_run
 
 
+
+def test_pid_liveness_rejects_unreaped_zombie() -> None:
+    """Linux /proc is authoritative: kill(pid, 0) also succeeds for zombies."""
+    import os
+    import time
+    from serverbridge import supervisor
+
+    for module in (update_engine, supervisor):
+        assert module.alive(os.getpid()) is True
+        assert module.alive(0) is False
+        assert module.alive(-1) is False
+        assert module.alive(99999999) is False
+
+    pid = os.fork()
+    if pid == 0:
+        os._exit(0)
+    try:
+        for _ in range(200):
+            raw = Path(f"/proc/{pid}/stat").read_text()
+            if raw.rsplit(")", 1)[1].split()[0] == "Z":
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("fixture child never entered zombie state")
+        os.kill(pid, 0)
+        assert update_engine.alive(pid) is False
+        assert supervisor.alive(pid) is False
+    finally:
+        os.waitpid(pid, 0)
+
 def main() -> None:
     test_transport_version_normalization()
     test_supervisor_generation_marker()
+    test_pid_liveness_rejects_unreaped_zombie()
     print("Updater reconciliation tests passed")
 
 
