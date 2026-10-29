@@ -844,8 +844,7 @@ EOF
 Description=ServerBridge OpenAI Secure MCP Tunnel
 Documentation=https://github.com/$REPO
 After=network-online.target serverbridge-supervisor.service
-Wants=network-online.target
-Requires=serverbridge-supervisor.service
+Wants=network-online.target serverbridge-supervisor.service
 StartLimitIntervalSec=60
 StartLimitBurst=5
 
