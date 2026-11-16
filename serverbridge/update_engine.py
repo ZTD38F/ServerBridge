@@ -118,6 +118,7 @@ _SAFE_UPDATE_REASONS = frozenset({
     "candidate health failed",
     "route and previous backend pointer restored",
     "interrupted update recovered",
+    "active route unchanged",
 })
 
 
@@ -158,13 +159,36 @@ def parse_env(path):
         k,v=line.split("=",1);v=v.strip().strip('"').strip("'");out[k]=v
     return out
 
+def _verify_cached_release(source, dest):
+    """Reject cached runtime code that no longer matches the verified release tarball.
+
+    The installed virtualenv and generated metadata are not part of the source
+    archive. Do not mutate a potentially active release when validation fails.
+    """
+    if dest.is_symlink() or not dest.is_dir():
+        raise RuntimeError("cached release integrity: invalid release directory")
+    for expected_file in source.rglob("*"):
+        if expected_file.is_symlink():
+            raise RuntimeError("cached release integrity: archive contains a symlink")
+        if not expected_file.is_file():
+            continue
+        relative=expected_file.relative_to(source)
+        actual_file=dest/relative
+        if actual_file.is_symlink() or not actual_file.is_file():
+            raise RuntimeError(f"cached release integrity: missing or linked {relative}")
+        if hashlib.sha256(expected_file.read_bytes()).digest()!=hashlib.sha256(actual_file.read_bytes()).digest():
+            raise RuntimeError(f"cached release integrity: modified {relative}")
+    if not (dest/".venv"/"bin"/"python").is_file():
+        raise RuntimeError("cached release integrity: runtime environment missing")
+
+
 def stage_latest():
     rel=api(f"/repos/{REPO}/releases/latest")
     if rel.get("draft") or rel.get("prerelease"):raise RuntimeError("latest release not stable")
     tag=rel["tag_name"];commit=api(f"/repos/{REPO}/commits/{tag}")["sha"]
-    if not isinstance(commit,str) or len(commit)!=40:raise RuntimeError("bad release commit")
+    if not isinstance(commit,str) or len(commit)!=40 or any(c not in "0123456789abcdef" for c in commit):
+        raise RuntimeError("bad release commit")
     dest=ROOT/"releases"/commit
-    if (dest/"serverbridge"/"http_runtime.py").exists():return commit,dest,tag
     assets={a["name"]:a for a in rel.get("assets",[])}
     tar_name=f"ServerBridge-{tag}.tar.gz"
     if tar_name not in assets or "SHA256SUMS.txt" not in assets:raise RuntimeError("release artifacts incomplete")
@@ -183,6 +207,9 @@ def stage_latest():
             tf.extractall(extract, filter="data")
         children=[p for p in extract.iterdir() if p.is_dir()]
         src=children[0] if len(children)==1 else extract
+        if dest.exists() or dest.is_symlink():
+            _verify_cached_release(src,dest)
+            return commit,dest,tag
         tmp=Path(str(dest)+".tmp");shutil.rmtree(tmp,ignore_errors=True);shutil.copytree(src,tmp)
         py=sys.executable
         subprocess.run([py,"-m","venv",str(tmp/".venv")],check=True)
@@ -195,8 +222,8 @@ def stage_latest():
 
 def start_backend(release,port):
     env=os.environ.copy();env.update(parse_env(CONFIG/"serverbridge.env"));env.update(parse_env(CONFIG/"network.env"));env["SERVERBRIDGE_BACKEND_TOKEN_FILE"]=str(BACKEND_TOKEN)
-    logf=open(f"/var/log/serverbridge-backend-{release.name[:12]}.log","ab",buffering=0)
-    p=subprocess.Popen([str(release/".venv"/"bin"/"python"),"-m","serverbridge.http_runtime","--port",str(port)],cwd=str(release),env=env,stdin=subprocess.DEVNULL,stdout=logf,stderr=subprocess.STDOUT,start_new_session=True)
+    with open(f"/var/log/serverbridge-backend-{release.name[:12]}.log","ab",buffering=0) as logf:
+        p=subprocess.Popen([str(release/".venv"/"bin"/"python"),"-m","serverbridge.http_runtime","--port",str(port)],cwd=str(release),env=env,stdin=subprocess.DEVNULL,stdout=logf,stderr=subprocess.STDOUT,start_new_session=True)
     return p
 
 def backend_health(port):
@@ -288,12 +315,21 @@ def main():
     if int(status.get("live_process_sessions",0))>0:
         write_state("DEFERRED_STATEFUL_HANDLES",current,target,pg,pp,ppid,cp,0);log("deferred stateful handles");return
     oldtools=tools(ROUTER,"X-Bridge-Token",ROUTER_TOKEN)
-    p=start_backend(candidate,cp);write_state("CANDIDATE_STARTING",current,target,pg,pp,ppid,cp,p.pid)
-    for _ in range(40):
-        if p.poll() is None and backend_health(cp):break
-        time.sleep(.25)
-    if p.poll() is not None or not backend_health(cp):stop(p.pid);write_state("FAILED_PRE_SWITCH",current,target,pg,pp,ppid,cp,p.pid,"candidate health failed");raise RuntimeError("candidate unhealthy")
-    newtools=tools(f"http://127.0.0.1:{cp}","X-Bridge-Backend-Token",BACKEND_TOKEN);assert_compatible(oldtools,newtools);write_state("CANDIDATE_HEALTHY",current,target,pg,pp,ppid,cp,p.pid)
+    p=start_backend(candidate,cp)
+    try:
+        write_state("CANDIDATE_STARTING",current,target,pg,pp,ppid,cp,p.pid)
+        for _ in range(40):
+            if p.poll() is None and backend_health(cp):break
+            time.sleep(.25)
+        if p.poll() is not None or not backend_health(cp):
+            raise RuntimeError("candidate health failed")
+        newtools=tools(f"http://127.0.0.1:{cp}","X-Bridge-Backend-Token",BACKEND_TOKEN)
+        assert_compatible(oldtools,newtools)
+        write_state("CANDIDATE_HEALTHY",current,target,pg,pp,ppid,cp,p.pid)
+    except BaseException as e:
+        stop(p.pid)
+        write_state("FAILED_ROLLED_BACK",current,target,pg,pp,ppid,cp,p.pid,str(e),"active route unchanged")
+        raise
     set_route(target,cp);write_state("SWITCHED",current,target,pg,pp,ppid,cp,p.pid)
     try:
         assert_compatible(oldtools,tools(ROUTER,"X-Bridge-Token",ROUTER_TOKEN));write_state("DRAINING_OLD",current,target,pg,pp,ppid,cp,p.pid)

@@ -11,6 +11,11 @@ python -m compileall -q serverbridge tests
 python tests/mcp_smoke.py
 python tests/security_smoke.py
 python tests/test_installer_templates.py
+python tests/update_engine_reconcile.py
+python tests/test_updater_failure_cleanup.py
+python tests/test_staged_release_integrity.py
+python tests/test_sessions_integrity.py
+python tests/test_supervisor_http_e2e.py
 ```
 
 For installer changes, the GitHub CI also performs a real temporary install and a forced failed update to verify rollback.

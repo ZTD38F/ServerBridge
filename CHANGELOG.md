@@ -1,5 +1,64 @@
 # Changelog
 
+## Unreleased (after 0.5.9)
+
+- Revalidate cached release source files against the checksum-verified published archive before reuse; reject drift without replacing a potentially active generation.
+- Stop and record a failed pre-switch candidate if MCP tool negotiation or candidate health validation fails.
+- Make concurrent process-session admission atomic and report ring-buffer truncation with absolute output cursors.
+- Add real local HTTP routing/authorization/drain tests and failure-injection regressions.
+- Update the architecture and installation documentation to match the actual supervisor + Streamable HTTP design.
+
+## 0.5.9 — 2026-10-29
+
+- Preserve the transport while updating the supervisor.
+- Reject zombie backend PIDs and sanitize updater failure metadata.
+- [Release notes](https://github.com/ZTD38F/ServerBridge/releases/tag/v0.5.9).
+
+## 0.5.8 — 2026-10-29
+
+- Redact credentials embedded in nested mutation-audit structures.
+- [Release notes](https://github.com/ZTD38F/ServerBridge/releases/tag/v0.5.8).
+
+## 0.5.7 — 2026-10-16
+
+- Improve tool descriptions and MCP discoverability.
+- [Release notes](https://github.com/ZTD38F/ServerBridge/releases/tag/v0.5.7).
+
+## 0.5.6 — 2026-10-09
+
+- Correct the recorded current-generation metadata after successful promotion.
+- [Release notes](https://github.com/ZTD38F/ServerBridge/releases/tag/v0.5.6).
+
+## 0.5.5 — 2026-10-06
+
+- Synchronize package, runtime and plugin version metadata.
+- [Release notes](https://github.com/ZTD38F/ServerBridge/releases/tag/v0.5.5).
+
+## 0.5.4 — 2026-10-06
+
+- Repair updater reconciliation and transport version normalization.
+- [Release notes](https://github.com/ZTD38F/ServerBridge/releases/tag/v0.5.4).
+
+## 0.5.3 — 2026-10-06
+
+- Restore an unhealthy or dead backend through the supervisor watchdog.
+- [Release notes](https://github.com/ZTD38F/ServerBridge/releases/tag/v0.5.3).
+
+## 0.5.2 — 2026-10-04
+
+- Prevent self-hosted updater deadlock while draining an active MCP request.
+- [Release notes](https://github.com/ZTD38F/ServerBridge/releases/tag/v0.5.2).
+
+## 0.5.1 — 2026-10-04
+
+- Restore the Browser Live MCP adapter.
+- [Release notes](https://github.com/ZTD38F/ServerBridge/releases/tag/v0.5.1).
+
+## 0.5.0 — 2026-10-03
+
+- Introduce generation-based Streamable HTTP MCP updates, stable supervisor routing, automatic recovery and rollback.
+- [Release notes](https://github.com/ZTD38F/ServerBridge/releases/tag/v0.5.0).
+
 ## 0.4.0 — 2026-09-25
 
 Remote-operations release:

@@ -16,6 +16,9 @@ class Session:
     started:float=field(default_factory=time.time)
     stdout:deque[str]=field(default_factory=lambda:deque(maxlen=MAX_LINES))
     stderr:deque[str]=field(default_factory=lambda:deque(maxlen=MAX_LINES))
+    # Absolute line positions of the first retained item in each ring buffer.
+    stdout_base:int=0
+    stderr_base:int=0
     out_cursor:int=0
     err_cursor:int=0
     lock:threading.Lock=field(default_factory=threading.Lock)
@@ -23,25 +26,32 @@ class Session:
 _sessions:dict[str,Session]={}
 _guard=threading.Lock()
 
-def _pump(stream, buf:deque[str]) -> None:
+def _pump(s:Session, stream, channel:str) -> None:
+    buf=s.stdout if channel=='stdout' else s.stderr
+    base_attr='stdout_base' if channel=='stdout' else 'stderr_base'
     try:
         for line in iter(stream.readline,''):
-            buf.append(line.rstrip('\n'))
+            with s.lock:
+                if len(buf)==buf.maxlen:
+                    setattr(s,base_attr,getattr(s,base_attr)+1)
+                buf.append(line.rstrip('\n'))
     finally:
         stream.close()
 
 def start(argv:list[str],cwd:str,env:dict[str,str]) -> dict[str,Any]:
+    # Admission and registration must be one critical section. Otherwise two
+    # concurrent callers can both see a free slot before either starts a child.
     with _guard:
-        live=[s for s in _sessions.values() if s.proc.poll() is None]
-        if len(live)>=MAX_SESSIONS:
+        live=sum(s.proc.poll() is None for s in _sessions.values())
+        if live>=MAX_SESSIONS:
             raise RuntimeError('SESSION_LIMIT')
-    proc=subprocess.Popen(argv,cwd=cwd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-        text=True,bufsize=1,env=env,start_new_session=True,close_fds=True)
-    sid=uuid.uuid4().hex
-    s=Session(sid,proc,argv,cwd)
-    with _guard: _sessions[sid]=s
-    threading.Thread(target=_pump,args=(proc.stdout,s.stdout),daemon=True).start()
-    threading.Thread(target=_pump,args=(proc.stderr,s.stderr),daemon=True).start()
+        proc=subprocess.Popen(argv,cwd=cwd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+            text=True,bufsize=1,env=env,start_new_session=True,close_fds=True)
+        sid=uuid.uuid4().hex
+        s=Session(sid,proc,argv,cwd)
+        _sessions[sid]=s
+    threading.Thread(target=_pump,args=(s,proc.stdout,'stdout'),daemon=True).start()
+    threading.Thread(target=_pump,args=(s,proc.stderr,'stderr'),daemon=True).start()
     return info(s)
 
 def get(sid:str)->Session:
@@ -59,14 +69,20 @@ def list_all()->list[dict[str,Any]]:
 def read(sid:str,max_lines:int=200)->dict[str,Any]:
     s=get(sid); max_lines=max(1,min(int(max_lines),2000))
     with s.lock:
-        out=list(s.stdout); err=list(s.stderr)
-        new_out=out[s.out_cursor:s.out_cursor+max_lines]
-        new_err=err[s.err_cursor:s.err_cursor+max_lines]
-        s.out_cursor=min(len(out),s.out_cursor+len(new_out))
-        s.err_cursor=min(len(err),s.err_cursor+len(new_err))
+        out_start=max(s.out_cursor,s.stdout_base)
+        err_start=max(s.err_cursor,s.stderr_base)
+        dropped_out=max(0,s.stdout_base-s.out_cursor)
+        dropped_err=max(0,s.stderr_base-s.err_cursor)
+        out=list(s.stdout)[out_start-s.stdout_base:out_start-s.stdout_base+max_lines]
+        err=list(s.stderr)[err_start-s.stderr_base:err_start-s.stderr_base+max_lines]
+        s.out_cursor=out_start+len(out)
+        s.err_cursor=err_start+len(err)
+        out_more=s.out_cursor < s.stdout_base+len(s.stdout)
+        err_more=s.err_cursor < s.stderr_base+len(s.stderr)
     result=info(s)
-    result.update({'stdout':'\n'.join(new_out),'stderr':'\n'.join(new_err),
-        'stdout_has_more':s.out_cursor<len(out),'stderr_has_more':s.err_cursor<len(err)})
+    result.update({'stdout':'\n'.join(out),'stderr':'\n'.join(err),
+        'stdout_has_more':out_more,'stderr_has_more':err_more,
+        'stdout_dropped_lines':dropped_out,'stderr_dropped_lines':dropped_err})
     return result
 
 def send(sid:str,data:str)->dict[str,Any]:

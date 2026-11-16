@@ -100,7 +100,7 @@ Then rescan the tunnel tools in ChatGPT once. `run_command` accepts an argv arra
 - apt, dnf, yum, apk, pacman, zypper
 - systemd / OpenRC
 - Python 3.10+
-- OpenAI `tunnel-client v0.0.14`, pinned to the tested release
+- OpenAI `tunnel-client v0.0.15`, pinned to the tested release
 - official SHA-256 verification
 - authenticated loopback Streamable HTTP MCP behind a long-lived supervisor
 - hashed Python dependency lock

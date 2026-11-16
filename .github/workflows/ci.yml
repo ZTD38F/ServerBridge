@@ -124,6 +124,18 @@ jobs:
       - name: Updater reconciliation test
         run: python tests/update_engine_reconcile.py
 
+      - name: Release cache integrity regression
+        run: python tests/test_staged_release_integrity.py
+
+      - name: Process session admission and buffer regression
+        run: python tests/test_sessions_integrity.py
+
+      - name: Updater pre-switch failure cleanup regression
+        run: python tests/test_updater_failure_cleanup.py
+
+      - name: Real loopback HTTP supervisor E2E
+        run: python tests/test_supervisor_http_e2e.py
+
       - name: Manifest smoke test
         run: |
           python - <<'PY'
