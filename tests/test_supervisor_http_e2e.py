@@ -4,6 +4,7 @@ from __future__ import annotations
 import http.client
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
@@ -94,6 +95,9 @@ def test_http_router() -> None:
             t.join(timeout=3)
             assert not t.is_alive() and slow, "old request did not drain"
             assert slow[0][1]["result"]["backend"] == "one", slow
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and supervisor.INFLIGHT.get("one", 0):
+                time.sleep(0.01)
             assert supervisor.INFLIGHT.get("one", 0) == 0
     finally:
         finish_first.set()
