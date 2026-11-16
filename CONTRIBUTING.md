@@ -16,6 +16,7 @@ python tests/test_updater_failure_cleanup.py
 python tests/test_staged_release_integrity.py
 python tests/test_sessions_integrity.py
 python tests/test_supervisor_http_e2e.py
+python tests/test_mcp_tunnel_proxy_e2e.py
 ```
 
 For installer changes, the GitHub CI also performs a real temporary install and a forced failed update to verify rollback.

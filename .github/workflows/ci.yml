@@ -136,6 +136,9 @@ jobs:
       - name: Real loopback HTTP supervisor E2E
         run: python tests/test_supervisor_http_e2e.py
 
+      - name: Real MCP initialize/tools-list/tools-call through HTTP router E2E
+        run: python tests/test_mcp_tunnel_proxy_e2e.py
+
       - name: Manifest smoke test
         run: |
           python - <<'PY'

@@ -5,7 +5,7 @@
 - Revalidate cached release source files against the checksum-verified published archive before reuse; reject drift without replacing a potentially active generation.
 - Stop and record a failed pre-switch candidate if MCP tool negotiation or candidate health validation fails.
 - Make concurrent process-session admission atomic and report ring-buffer truncation with absolute output cursors.
-- Add real local HTTP routing/authorization/drain tests and failure-injection regressions.
+- Add real local HTTP routing/authorization/drain tests, authentic MCP initialize/tools-list/tools-call E2E and failure-injection regressions.
 - Patch the locked `opentelemetry-api` dependency to 1.45.2 to address CVE-2026-126360, preserving hash-based installation.
 - Update the architecture and installation documentation to match the actual supervisor + Streamable HTTP design.
 
