@@ -6,6 +6,7 @@
 - Stop and record a failed pre-switch candidate if MCP tool negotiation or candidate health validation fails.
 - Make concurrent process-session admission atomic and report ring-buffer truncation with absolute output cursors.
 - Add real local HTTP routing/authorization/drain tests and failure-injection regressions.
+- Patch the locked `opentelemetry-api` dependency to 1.45.2 to address CVE-2026-126360, preserving hash-based installation.
 - Update the architecture and installation documentation to match the actual supervisor + Streamable HTTP design.
 
 ## 0.5.9 — 2026-10-29
