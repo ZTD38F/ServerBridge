@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (after 0.5.9)
+## 0.5.10 — 2026-11-16
 
 - Revalidate cached release source files against the checksum-verified published archive before reuse; reject drift without replacing a potentially active generation.
 - Stop and record a failed pre-switch candidate if MCP tool negotiation or candidate health validation fails.
