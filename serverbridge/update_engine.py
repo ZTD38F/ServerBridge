@@ -330,8 +330,9 @@ def main():
         stop(p.pid)
         write_state("FAILED_ROLLED_BACK",current,target,pg,pp,ppid,cp,p.pid,str(e),"active route unchanged")
         raise
-    set_route(target,cp);write_state("SWITCHED",current,target,pg,pp,ppid,cp,p.pid)
     try:
+        set_route(target,cp)
+        write_state("SWITCHED",current,target,pg,pp,ppid,cp,p.pid)
         assert_compatible(oldtools,tools(ROUTER,"X-Bridge-Token",ROUTER_TOKEN));write_state("DRAINING_OLD",current,target,pg,pp,ppid,cp,p.pid)
         for _ in range(120):
             s=auth_json(ROUTER+"/__bridge/status","X-Bridge-Token",ROUTER_TOKEN)
