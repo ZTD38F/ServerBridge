@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -161,6 +162,12 @@ jobs:
 
       - name: Real MCP initialize/tools-list/tools-call through HTTP router E2E
         run: python tests/test_mcp_tunnel_proxy_e2e.py
+
+      - name: Automatic release proposal regression
+        run: python -m unittest discover -s tests -p test_release_train.py -v
+
+      - name: Automated delivery workflow security contracts
+        run: python -m unittest discover -s tests -p test_release_workflow_contract.py -v
 
       - name: Manifest smoke test
         run: |

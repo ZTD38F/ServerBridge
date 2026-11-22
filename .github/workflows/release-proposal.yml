@@ -1,0 +1,137 @@
+name: Propose verified patch release
+
+# Only a successful CI of a push to main may propose a release.
+# Does not merge, publish or deploy while PH24 issue #29 is open.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: serverbridge-release-proposal
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Python version
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Verify main ancestry, existing releases and pending proposals
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          LIVE_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')"
+          if [[ "$SOURCE_SHA" != "$LIVE_SHA" ]]; then
+            echo "Main advanced after CI; newer CI owns the release proposal."
+            echo "action=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          PUBLISHED="$(gh release view --json tagName --jq '.tagName')"
+          DECISION="$(python scripts/release_train.py plan \
+            --published "$PUBLISHED" --source-sha "$SOURCE_SHA")"
+          echo "Release plan: $DECISION"
+          ACTION="$(python -c 'import json,sys;print(json.load(sys.stdin)["action"])' <<< "$DECISION")"
+          if [[ "$ACTION" != "propose" ]]; then
+            echo "action=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          VERSION="$(python -c 'import json,sys;print(json.load(sys.stdin)["version"])' <<< "$DECISION")"
+          BRANCH="automated-release/v$VERSION"
+
+          # Existing owner-authored candidates, including PR #32, take precedence.
+          OPEN="$(gh pr list --state open --base main --limit 100 --json title,headRefName)"
+          if python -c 'import json,sys,re
+          v=sys.argv[1]
+          prs=json.load(sys.stdin)
+          rx=re.compile(r"(?<![A-Za-z0-9])v"+re.escape(v)+r"(?![0-9.])")
+          sys.exit(0 if any(rx.search(p["title"]) or p["headRefName"] == "automated-release/v"+v for p in prs) else 1)' "$VERSION" <<< "$OPEN"; then
+            echo "An existing v$VERSION PR already owns the release proposal."
+            echo "action=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null; then
+            echo "Existing release branch has unknown state; fail closed."
+            exit 1
+          fi
+          echo "action=propose" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "published=$PUBLISHED" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Build and validate versioned candidate
+        if: steps.plan.outputs.action == 'propose'
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.plan.outputs.source_sha }}
+          PUBLISHED: ${{ steps.plan.outputs.published }}
+        run: |
+          set -Eeuo pipefail
+          python scripts/release_train.py apply \
+            --published "$PUBLISHED" --source-sha "$SOURCE_SHA"
+          python -m unittest discover -s tests -p test_release_train.py -v
+          python -m compileall -q serverbridge scripts/release_train.py
+          git diff --check
+          git diff --name-only | sort > /tmp/changed-files.txt
+          printf '%s\n' CHANGELOG.md plugin.json pyproject.toml serverbridge/__init__.py |
+            sort > /tmp/expected-files.txt
+          cmp /tmp/changed-files.txt /tmp/expected-files.txt
+
+      - name: Open one draft PR with no release or production mutation
+        if: steps.plan.outputs.action == 'propose'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.plan.outputs.branch }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          SOURCE_SHA: ${{ steps.plan.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add -- CHANGELOG.md plugin.json pyproject.toml serverbridge/__init__.py
+          git commit -m "chore(release): propose v$VERSION from verified main"
+          git push origin "HEAD:refs/heads/$BRANCH"
+          cat > /tmp/serverbridge-release-pr.md <<EOF
+          Automated candidate from verified main commit $SOURCE_SHA.
+
+          - CI of the source commit succeeded before candidate generation.
+          - Version, plugin manifest, changelog and runtime metadata are synchronized.
+          - The candidate requires its own full CI before any merge.
+          - This is intentionally a draft: no stable release or VPS update has occurred.
+          - First resolve issue #29 (duplicate PH24 tunnel identity) and prove host-specific rollback.
+          - Release promotion is handled by the existing release workflow only after a verified merge.
+          EOF
+          gh pr create --draft --base main --head "$BRANCH" \
+            --title "Draft automated release candidate v$VERSION" \
+            --body-file /tmp/serverbridge-release-pr.md
+          # The explicit dispatch triggers CI even when the bot used GITHUB_TOKEN.
+          gh workflow run ci.yml --ref "$BRANCH"
