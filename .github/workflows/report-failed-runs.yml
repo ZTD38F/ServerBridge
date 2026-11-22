@@ -1,0 +1,45 @@
+name: Report failed ServerBridge workflows
+
+on:
+  workflow_run:
+    workflows: [CI, Release, Upstream compatibility]
+    types: [completed]
+
+permissions:
+  issues: write
+
+jobs:
+  reconciliation:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.head_branch == 'main'
+    steps:
+      - name: Create or resolve an evidence-only failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_NAME: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$HEAD_SHA" =~ ^[a-fA-F0-9]{40}$ ]]
+          case "$CONCLUSION" in
+            success|failure|timed_out|cancelled) ;;
+            *) exit 0 ;;
+          esac
+          title="ServerBridge workflow failure — run $RUN_ID"
+          export TARGET_TITLE="$title"
+          number="$(gh issue list --repo "$REPO" --state all --search "run $RUN_ID in:title" --json number,title |
+            python3 -c 'import json,os,sys; title=os.environ["TARGET_TITLE"]; print(next((str(item["number"]) for item in json.load(sys.stdin) if item["title"] == title), ""))')"
+          if [[ "$CONCLUSION" == success ]]; then
+            if [[ -n "$number" ]]; then
+              gh issue close "$number" --repo "$REPO" --comment "This workflow run was verified successful on its latest attempt."
+            fi
+          elif [[ -z "$number" ]]; then
+            body="$(printf 'Automated failure receipt (no logs or secrets).\n\nWorkflow: %s\nRun: %s\nCommit: %s\nConclusion: %s\n\nInvestigate, fix, test, independently verify and close with evidence.\n' "$RUN_NAME" "$RUN_URL" "$HEAD_SHA" "$CONCLUSION")"
+            gh issue create --repo "$REPO" --title "$title" --body "$body"
+          fi

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.15 — 2026-11-22
+
+- Self-update the update launcher and systemd timer after stable A/B releases, preserving custom wrappers and per-host rollback.
+- Repair updater drift on already-current releases; respect disabled schedules and preserve local semantic tool overlays.
+- Record verified component SHA-256 receipts and guard abnormal custom launcher replacement.
+
 ## 0.5.14 — 2026-11-22
 
 - The ordinary one-line bootstrap independently asks whether to reuse saved Tunnel ID and runtime API key, with Enter meaning yes.
