@@ -41,6 +41,9 @@ jobs:
       - name: Full-access mode contracts
         run: python tests/test_access_mode_contract.py
 
+      - name: Existing runtime credential reuse
+        run: python tests/test_credentials_reuse.py
+
       - name: Seamless update architecture contract
         run: |
           python - <<'PY'

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.12 — 2026-11-22
+
+- Correct modern-install upgrade credential reuse: read the existing runtime API key only from the managed, non-symlink protected file without printing it.
+- Test read-only to full-access upgrade while the runtime API key environment variable is absent.
+
 ## 0.5.11 — 2026-11-22
 
 - Offer interactive Full Access through the ordinary stable installer, while preserving the existing mode on unattended upgrades.
