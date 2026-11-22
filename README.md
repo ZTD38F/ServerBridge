@@ -16,15 +16,24 @@ curl -fsSL https://github.com/ZTD38F/ServerBridge/releases/latest/download/boots
 
 Full Access is the **default for all installations and upgrades**, including unattended runs. It enables root-level exec, write, process and service tools for the authenticated private tunnel. The choice is persisted and verified against the installed Python runtime; use `--read-only` if you explicitly need diagnostics-only access.
 
-On an upgrade, ServerBridge reuses an existing protected runtime API key file if available, so it does not unnecessarily request a new key. A new install still requests a key securely via the console.
-
-The installer asks for:
+On existing installations the installer detects the previous Tunnel ID and
+runtime API key **independently**, then asks whether to reuse each one. Press
+**Enter** for Yes (reuse), or answer N to enter a new value. On a fresh VPS it
+asks for both values. The API key is never printed and is typed without echo.
 
 ```text
-Tunnel ID: tunnel_...
-Runtime API key: ********
+Reuse previously saved Tunnel ID? [Y/n]:       (Enter = reuse)
+Tunnel ID accepted.
+Reuse previously saved runtime API key? [Y/n]: (Enter = reuse)
+Runtime key received.
 Full Access: enabled by default
 ```
+
+To replace only the Tunnel ID, answer N to the first question and enter the
+new Tunnel ID; then press Enter to reuse the previous runtime API key.
+The installer also supports noninteractive runs: when no terminal is available,
+saved values are reused automatically, while explicit options and environment
+values override saved ones.
 
 When it says **ServerBridge is ready**, open:
 
