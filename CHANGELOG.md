@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.16 — 2026-11-22
+
+- Nonfunctional deployment canary to verify a previously updated server discovers and installs the next stable release by the native timer without a manual invocation; no runtime tool schemas or security settings changed.
+- Retain updater-component reconciliation, 30-second timer, private semantic overlay hook and rollback guarantees.
+
 ## 0.5.15 — 2026-11-22
 
 - Self-update the update launcher and systemd timer after stable A/B releases, preserving custom wrappers and per-host rollback.
