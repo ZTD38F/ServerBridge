@@ -12,7 +12,7 @@ Create the tunnel at https://platform.openai.com/settings/organization/tunnels a
 curl -fsSL https://github.com/ZTD38F/ServerBridge/releases/latest/download/bootstrap.sh | sudo bash
 ```
 
-The interactive installer requests a visible Tunnel ID and a hidden runtime API key. It checks system prerequisites, stages a commit-pinned release and the hash-locked Python runtime, verifies the pinned official OpenAI transport binary, configures an authenticated loopback HTTP supervisor plus an active backend, installs services and the daily update timer, and checks local health.
+The interactive installer requests a visible Tunnel ID and a hidden runtime API key. It checks system prerequisites, stages a commit-pinned release and the hash-locked Python runtime, verifies the pinned official OpenAI transport binary, configures an authenticated loopback HTTP supervisor plus an active backend, installs services and the 30-second stable-release check timer on systemd, and checks local health.
 
 Do not paste a runtime key in a shell command or share `/etc/serverbridge` credentials. A successfully completed local installation does **not** by itself prove that ChatGPT has discovered the tunnel: open https://chatgpt.com/#settings/Connectors, select the correct tunnel, and scan its tools.
 

@@ -14,9 +14,9 @@ ServerBridge protects only its own control-plane credential/configuration paths 
 
 Change `SERVERBRIDGE_PROTECTED_PATHS` if you want a narrower or completely unrestricted read model.
 
-## Optional mutation capabilities
+## Mutation capabilities and explicit read-only mode
 
-`run_command` is not registered unless `SERVERBRIDGE_ENABLE_EXEC=1` (or an equivalent explicit true value) is persisted. When enabled, it executes with the OS privileges of ServerBridge; the default systemd service runs as root.
+The standard private-tunnel installer selects **Full Access by default**, enabling `run_command` and the write/process/service-control families. This runs with the OS privileges of ServerBridge; the default systemd service runs as root. Select `--read-only` or `SERVERBRIDGE_ACCESS_MODE=readonly` to disable mutation capabilities explicitly. Changing access mode requires intentional operator authorization; an installed private tunnel alone does not grant authority to perform arbitrary operations.
 
 Typed mutation families can also be controlled independently with `SERVERBRIDGE_ENABLE_WRITE`, `SERVERBRIDGE_ENABLE_PROCESS`, and `SERVERBRIDGE_ENABLE_SERVICE_CONTROL`. For backward compatibility, each defaults to the value of `SERVERBRIDGE_ENABLE_EXEC` when not explicitly set. Filesystem writes are atomic and `edit_file` can require an expected SHA-256 to detect concurrent changes. Mutation operations are written to a best-effort append-only audit log (default `/var/lib/serverbridge/audit.jsonl`), while command and persistent-process output passes through secret redaction before returning through MCP.
 

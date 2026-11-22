@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Forward partial HTTP and SSE response chunks immediately through the authenticated supervisor rather than buffering until 64 KiB or EOF, preserving real-time streams.
+- Add actual one-line piped-bootstrap PTY regressions for Enter-to-reuse, replacement and fresh install with synthetic credentials, plus streaming E2E coverage.
+- Correct installation documentation for the existing 30-second timer and default access mode.
+- Eliminate a narrow credential echo race by disabling terminal echo before showing the API-key prompt, and restore the previous terminal state on successful and interrupted reads.
+
 ## 0.5.16 — 2026-11-22
 
 - Nonfunctional deployment canary to verify a previously updated server discovers and installs the next stable release by the native timer without a manual invocation; no runtime tool schemas or security settings changed.

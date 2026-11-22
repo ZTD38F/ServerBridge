@@ -69,7 +69,7 @@ Usage:
 Options:
   --dry-run       Detect and validate only; do not modify the server.
   --no-start      Install and validate but do not start the service.
-  --no-auto-update Do not install the daily stable auto-update job.
+  --no-auto-update Disable the stable-release auto-update job.
   --full-access    Enable all authenticated root administration tools (default).
   --read-only      Explicitly disable all remote mutation tools.
   --tunnel-id ID  Supply the tunnel ID non-interactively.
@@ -296,14 +296,23 @@ visible_input() {
   printf '%s' "$value"
 }
 
-secret_input() {
-  local prompt="$1" value
-  [[ -r /dev/tty ]] || return 1
+secret_input() (
+  local prompt="$1" value tty_state
+  [[ -r /dev/tty ]] || exit 1
+  tty_state="$(stty -g </dev/tty)" || exit 1
+  # Disable terminal echo BEFORE printing the prompt. Otherwise an immediate
+  # keystroke can race Bash read -s and briefly expose the runtime API key.
+  trap 'stty "$tty_state" </dev/tty 2>/dev/null || true' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  stty -echo </dev/tty || exit 1
   printf '%b' "$prompt" >/dev/tty
-  IFS= read -r -s value </dev/tty || return 1
+  IFS= read -r value </dev/tty || exit 1
+  stty "$tty_state" </dev/tty || exit 1
+  trap - EXIT INT TERM
   printf '\n' >/dev/tty
   printf '%s' "$value"
-}
+)
 
 load_existing_credentials() {
   if [[ -r "$CONFIG_DIR/runtime.env" ]]; then

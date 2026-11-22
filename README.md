@@ -114,7 +114,7 @@ Read-only core: `server_info` · `file_stat` · `list_files` · `read_file` · `
 
 When execution is enabled, ServerBridge also exposes typed mutation tools: `write_file` · `edit_file` · `move_file` · `start_process` · `read_process_output` · `send_process_input` · `kill_process` · `list_sessions` · `service_start` · `service_stop` · `service_restart`, plus the compatibility escape hatch `run_command`.
 
-The public MCP core remains read-only/diagnostic by default. Filesystem reading is intentionally broad by default. ServerBridge protects its own tunnel/control-plane credential files unless you change `SERVERBRIDGE_PROTECTED_PATHS`.
+The diagnostic tool family remains read-only; the standard private-tunnel installer enables additional mutation tools by default. Filesystem reading is intentionally broad. ServerBridge protects its own tunnel/control-plane credential files unless you change `SERVERBRIDGE_PROTECTED_PATHS`.
 
 ### Full administrative access for a private VPS
 
@@ -136,8 +136,9 @@ For diagnostic-only mode:
 curl -fsSL https://github.com/ZTD38F/ServerBridge/releases/latest/download/bootstrap.sh | sudo bash -s -- --read-only
 ```
 
-Without a terminal and without either flag, installation preserves the previous
-capabilities (or defaults to read-only on a fresh installation). The legacy
+Without a terminal and without either flag, installation defaults to Full Access,
+including upgrades, unless the explicit read-only option or environment setting
+is provided. The legacy
 SERVERBRIDGE_ENABLE_EXEC=1 environment setting remains supported.
 --full-access ensures all four capability flags are 1, regardless of a
 previous read-only configuration, and persists the choice across updates.

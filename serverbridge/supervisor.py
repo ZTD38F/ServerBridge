@@ -114,7 +114,9 @@ class H(BaseHTTPRequestHandler):
             if not has_len:self.send_header("Connection","close");self.close_connection=True
             self.end_headers()
             while True:
-                chunk=r.read(65536)
+                # read1() forwards partial and chunked responses immediately;
+                # read(65536) can block until the buffer fills or SSE ends.
+                chunk=r.read1(65536)
                 if not chunk:break
                 self.wfile.write(chunk);self.wfile.flush()
         except Exception:

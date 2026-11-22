@@ -50,6 +50,9 @@ jobs:
       - name: Real Linux TTY credential prompts
         run: python tests/test_credential_prompt_tty.py
 
+      - name: One-command piped bootstrap with real PTY prompts
+        run: python tests/test_one_line_bootstrap_pty.py
+
       - name: Seamless update architecture contract
         run: |
           python - <<'PY'
@@ -152,6 +155,9 @@ jobs:
 
       - name: Real loopback HTTP supervisor E2E
         run: python tests/test_supervisor_http_e2e.py
+
+      - name: Real-time SSE streaming E2E through supervisor
+        run: python tests/test_supervisor_realtime_streaming.py
 
       - name: Real MCP initialize/tools-list/tools-call through HTTP router E2E
         run: python tests/test_mcp_tunnel_proxy_e2e.py
