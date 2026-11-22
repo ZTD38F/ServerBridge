@@ -200,7 +200,7 @@ for capability in EXEC WRITE PROCESS SERVICE_CONTROL; do
 done
 
 echo "== upgrade existing read-only install to full-access =="
-sudo env "${common_env[@]}" bash ./install.sh --no-start --full-access
+sudo env "${common_env[@]}" CONTROL_PLANE_API_KEY= bash ./install.sh --no-start --full-access
 for capability in EXEC WRITE PROCESS SERVICE_CONTROL; do
   sudo grep -Fxq "SERVERBRIDGE_ENABLE_$capability=1" "$CONFIG_DIR/serverbridge.env" || {
     echo "Expected full-access mode for $capability after reinstallation." >&2

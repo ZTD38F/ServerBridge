@@ -308,6 +308,14 @@ load_existing_credentials() {
     [[ -n "$TUNNEL_ID" ]] || TUNNEL_ID="$old_id"
     [[ -n "$RUNTIME_KEY" ]] || RUNTIME_KEY="$old_key"
   fi
+  # Modern installations keep the secret in a root-only file, not runtime.env.
+  # Reuse it only from our managed configuration and never echo its contents.
+  if [[ -z "$RUNTIME_KEY" && -f "$CONFIG_DIR/.serverbridge-managed" &&
+        -f "$CONFIG_DIR/control_plane_api_key" &&
+        ! -L "$CONFIG_DIR/control_plane_api_key" &&
+        -r "$CONFIG_DIR/control_plane_api_key" ]]; then
+    IFS= read -r RUNTIME_KEY < "$CONFIG_DIR/control_plane_api_key" || [[ -n "$RUNTIME_KEY" ]]
+  fi
 }
 
 prompt_credentials() {

@@ -16,6 +16,8 @@ curl -fsSL https://github.com/ZTD38F/ServerBridge/releases/latest/download/boots
 
 The interactive installer asks for tunnel credentials and an access level. It offers Full Access (default answer Y) or read-only (N). The chosen mode is persisted and checked against the installed Python runtime before success is reported.
 
+On an upgrade, ServerBridge reuses an existing protected runtime API key file if available, so it does not unnecessarily request a new key. A new install still requests a key securely via the console.
+
 The installer asks for:
 
 ```text
