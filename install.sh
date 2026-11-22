@@ -19,6 +19,10 @@ AUTO_UPDATE="${SERVERBRIDGE_AUTO_UPDATE:-1}"
 ACCESS_MODE="${SERVERBRIDGE_ACCESS_MODE:-}"
 TUNNEL_ID="${SERVERBRIDGE_TUNNEL_ID:-${CONTROL_PLANE_TUNNEL_ID:-}}"
 RUNTIME_KEY="${CONTROL_PLANE_API_KEY:-}"
+TUNNEL_ID_EXPLICIT=0
+RUNTIME_KEY_EXPLICIT=0
+[[ -n "$TUNNEL_ID" ]] && TUNNEL_ID_EXPLICIT=1
+[[ -n "$RUNTIME_KEY" ]] && RUNTIME_KEY_EXPLICIT=1
 SOURCE_SHA="${SERVERBRIDGE_SOURCE_SHA:-}"
 SOURCE_DIR_OVERRIDE="${SERVERBRIDGE_SOURCE_DIR:-}"
 
@@ -88,6 +92,7 @@ while (($#)); do
       shift
       (($#)) || die "--tunnel-id requires a value"
       TUNNEL_ID="$1"
+      TUNNEL_ID_EXPLICIT=1
       ;;
     --help|-h) usage; exit 0 ;;
     *) die "Unknown option: $1 (use --help)" ;;
@@ -319,32 +324,65 @@ load_existing_credentials() {
 }
 
 prompt_credentials() {
+  local choice=""
+
   say "${BOLD}ServerBridge${RESET}"
   say "${DIM}Private VPS → OpenAI Secure MCP Tunnel${RESET}"
+
+  # Existing credentials were read by load_existing_credentials. Explicit
+  # --tunnel-id / environment overrides never trigger reuse questions.
+  if [[ -n "$TUNNEL_ID" && "$TUNNEL_ID_EXPLICIT" == 0 ]]; then
+    if ((DRY_RUN)) || [[ ! -r /dev/tty ]] || [[ ! -t 2 ]]; then
+      info "Reusing saved Tunnel ID (non-interactive/default)."
+    else
+      choice="$(visible_input "Reuse previously saved Tunnel ID? [Y/n]: ")" ||
+        die "Could not read Tunnel ID reuse choice."
+      case "$choice" in
+        ""|y|Y|yes|YES|Yes|д|Д|да|Да|ДА) info "Using previously saved Tunnel ID." ;;
+        n|N|no|NO|No|н|Н|нет|Нет|НЕТ)
+          TUNNEL_ID=""
+          ;;
+        *) die "Tunnel ID choice must be yes or no; Enter means yes." ;;
+      esac
+    fi
+  fi
 
   if [[ -z "$TUNNEL_ID" ]]; then
     say ""
     say "Tunnel: ${BLUE}https://platform.openai.com/settings/organization/tunnels${RESET}"
-    TUNNEL_ID="$(visible_input "Tunnel ID: ")" ||
+    TUNNEL_ID="$(visible_input "New Tunnel ID: ")" ||
       die "No interactive terminal. Set SERVERBRIDGE_TUNNEL_ID."
   fi
-
   [[ "$TUNNEL_ID" =~ ^tunnel_[A-Za-z0-9_-]{8,}$ ]] ||
     die "Tunnel ID must look like tunnel_..."
   ok "Tunnel ID accepted."
+
+  if [[ -n "$RUNTIME_KEY" && "$RUNTIME_KEY_EXPLICIT" == 0 ]]; then
+    if ((DRY_RUN)) || [[ ! -r /dev/tty ]] || [[ ! -t 2 ]]; then
+      info "Reusing saved runtime API key (non-interactive/default)."
+    else
+      choice="$(visible_input "Reuse previously saved runtime API key? [Y/n]: ")" ||
+        die "Could not read runtime API key reuse choice."
+      case "$choice" in
+        ""|y|Y|yes|YES|Yes|д|Д|да|Да|ДА) info "Using previously saved runtime API key." ;;
+        n|N|no|NO|No|н|Н|нет|Нет|НЕТ)
+          RUNTIME_KEY=""
+          ;;
+        *) die "Runtime API key choice must be yes or no; Enter means yes." ;;
+      esac
+    fi
+  fi
 
   if ((DRY_RUN)) && [[ -z "$RUNTIME_KEY" ]]; then
     RUNTIME_KEY="dry-run-placeholder"
     info "Dry-run: runtime-key prompt skipped."
   elif [[ -z "$RUNTIME_KEY" ]]; then
     say "Runtime key: ${BLUE}https://platform.openai.com/settings/organization/api-keys${RESET}"
-    RUNTIME_KEY="$(secret_input "Runtime API key: ")" ||
+    RUNTIME_KEY="$(secret_input "New runtime API key: ")" ||
       die "No interactive terminal. Set CONTROL_PLANE_API_KEY."
   fi
-
   [[ "$RUNTIME_KEY" =~ ^[A-Za-z0-9._-]+$ ]] ||
     die "Runtime API key contains unsupported characters."
-
   ok "Runtime key received."
 }
 

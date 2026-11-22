@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.14 — 2026-11-22
+
+- The ordinary one-line bootstrap independently asks whether to reuse saved Tunnel ID and runtime API key, with Enter meaning yes.
+- Declining either saved value prompts only for that replacement. A new install prompts for missing credentials, and a noninteractive upgrade reuses both.
+- Preserve explicit environment/argument overrides, secret input redaction and all existing configuration/rollback behavior.
+- Add interactive default, replacement, first-install, noninteractive and negative tests.
+
 ## 0.5.13 — 2026-11-22
 
 - Enable Full Access as the default on owner-managed private tunnel installs and reinstalls; explicit read-only overrides remain available.

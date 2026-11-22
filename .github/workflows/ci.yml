@@ -44,6 +44,12 @@ jobs:
       - name: Existing runtime credential reuse
         run: python tests/test_credentials_reuse.py
 
+      - name: Interactive Tunnel ID and API key reuse
+        run: python tests/test_interactive_credentials.py
+
+      - name: Real Linux TTY credential prompts
+        run: python tests/test_credential_prompt_tty.py
+
       - name: Seamless update architecture contract
         run: |
           python - <<'PY'
