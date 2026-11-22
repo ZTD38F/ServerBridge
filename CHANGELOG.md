@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.11 — 2026-11-22
+
+- Offer interactive Full Access through the ordinary stable installer, while preserving the existing mode on unattended upgrades.
+- Add full-access and read-only modes that persist and normalize exec/write/process/service control, including upgrades from read-only.
+- Verify real installed runtime flags before reporting successful installation.
+- Extend installer mode tests and retain private-tunnel authentication, credentials protection and rollback behavior.
+
 ## 0.5.10 — 2026-11-16
 
 - Revalidate cached release source files against the checksum-verified published archive before reuse; reject drift without replacing a potentially active generation.

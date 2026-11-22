@@ -161,8 +161,8 @@ common_env=(
   "SERVERBRIDGE_TUNNEL_CLIENT_VERSION=v0.0.0"
 )
 
-echo "== clean install =="
-sudo env "${common_env[@]}" bash ./install.sh --no-start
+echo "== clean read-only install =="
+sudo env "${common_env[@]}" bash ./install.sh --no-start --read-only
 
 assert_test() {
   local message="$1"
@@ -190,6 +190,24 @@ assert_test "backend token missing" sudo test -f "$CONFIG_DIR/backend_token"
 assert_test "supervisor unit missing" sudo test -f /etc/systemd/system/serverbridge-supervisor.service
 assert_test "transport unit missing" sudo test -f /etc/systemd/system/serverbridge.service
 assert_test "legacy stdio profile should not be created" sudo test ! -f "$CONFIG_DIR/tunnel-client/serverbridge.yaml"
+
+
+for capability in EXEC WRITE PROCESS SERVICE_CONTROL; do
+  sudo grep -Fxq "SERVERBRIDGE_ENABLE_$capability=0" "$CONFIG_DIR/serverbridge.env" || {
+    echo "Expected read-only mode for $capability." >&2
+    exit 1
+  }
+done
+
+echo "== upgrade existing read-only install to full-access =="
+sudo env "${common_env[@]}" bash ./install.sh --no-start --full-access
+for capability in EXEC WRITE PROCESS SERVICE_CONTROL; do
+  sudo grep -Fxq "SERVERBRIDGE_ENABLE_$capability=1" "$CONFIG_DIR/serverbridge.env" || {
+    echo "Expected full-access mode for $capability after reinstallation." >&2
+    exit 1
+  }
+done
+sudo grep -Fxq 'SERVERBRIDGE_ACCESS_MODE=full' "$CONFIG_DIR/serverbridge.env"
 
 old_current="$(sudo readlink -f "$INSTALL_ROOT/current")"
 
