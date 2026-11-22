@@ -23,6 +23,8 @@ assert 'case "\\${1:-check}" in' in template
 assert '"\\${2:-100}"' in template
 assert "update|update-now)" in template
 assert 'serverbridge.update_engine' in template
+assert '$BIN_DIR/auto-update' in template
+
 
 assert "serverbridge-supervisor.service" in text
 assert "Requires=serverbridge-supervisor.service" not in text

@@ -81,6 +81,11 @@ jobs:
       - name: Bootstrap stable/edge channels
         run: bash tests/bootstrap_channels.sh
 
+      - name: Fast release update, custom overlay hook and timer
+        run: |
+          bash tests/auto_update_fast_probe.sh
+          python tests/test_update_components.py
+
       - name: Installer dry-run
         run: |
           sudo env \

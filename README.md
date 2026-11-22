@@ -81,6 +81,27 @@ curl -fsSL https://github.com/ZTD38F/ServerBridge/releases/latest/download/boots
 
 The normal install/update channel is **stable**: it resolves the latest published GitHub Release, not unreleased commits from `main`.
 
+### Updater self-maintenance and local integrations
+
+The stable updater now reconciles its own update launcher, systemd service
+and 30-second timer after a verified A/B runtime update. It verifies the
+effective file contents and timer, and atomically restores the prior state
+on failure. It retries drift repairs even if the backend version is current.
+An intentionally disabled update timer stays disabled.
+
+On servers with a local MCP semantic-control overlay, put the absolute path
+of the existing owner-managed Python updater wrapper in a root-owned file
+at /etc/serverbridge/update-wrapper.path (mode 0600). The standard
+auto-update launcher will invoke that wrapper's update action for new releases,
+preserving local tool extensions. The updater refuses to replace an
+unregistered custom launcher. Invalid or missing configured wrappers fail closed.
+
+Legacy installations (0.5.10 through 0.5.14) require one authenticated native
+updater invocation after their initial upgrade to 0.5.15 to activate the
+new self-maintaining launcher and timer. Later releases are automatically
+reconciled without further installer runs.
+
+
 Uninstall:
 
 ```bash

@@ -10,7 +10,9 @@ printf 'release\n' >"$TEMP/state/supervisor-generation"
 cat >"$TEMP/release/.venv/bin/python" <<'FAKEPY'
 #!/usr/bin/env bash
 set -Eeuo pipefail
-if [[ "$1" == "-m" && "$2" == "serverbridge.update_engine" ]]; then
+if [[ "$MOCK_WRAPPER" != "" && "$1" == "$MOCK_WRAPPER" && "$2" == update ]]; then
+  printf 'overlay\n' >>"$MOCK_UPDATED"
+elif [[ "$1" == "-m" && "$2" == "serverbridge.update_engine" ]]; then
   printf 'updated\n' >>"$MOCK_UPDATED"
 elif [[ "$1" == "-c" && "$2" == *"json.load"* ]]; then
   printf '%s\n' "$MOCK_PHASE"
@@ -37,6 +39,11 @@ chmod +x "$TEMP/fake/curl"
 export SERVERBRIDGE_INSTALL_ROOT="$TEMP"
 export SERVERBRIDGE_STATE_DIR="$TEMP/state"
 export SERVERBRIDGE_BIN_DIR="$TEMP/bin"
+export SERVERBRIDGE_CONFIG_DIR="$TEMP/config"
+export SERVERBRIDGE_UNIT_DIR="$TEMP/unit"
+mkdir -p "$TEMP/unit" "$TEMP/release/packaging"
+export MOCK_WRAPPER=""
+mkdir -p "$TEMP/config"
 export SERVERBRIDGE_UPDATE_LOG="$TEMP/updates.log"
 export MOCK_UPDATED="$TEMP/updated"
 export MOCK_PHASE=COMMITTED
@@ -69,6 +76,37 @@ bash ./auto-update.sh
 printf 'v9.9.9\n' >"$TEMP/release/TUNNEL_CLIENT_VERSION"
 bash ./auto-update.sh
 [[ "$(wc -l <"$MOCK_UPDATED")" == 4 ]] || { echo "Transport mismatch was skipped" >&2; exit 1; }
+
+# A registered semantic overlay must be invoked instead of losing local tools.
+printf '# local overlay fixture\n' >"$TEMP/overlay.py"
+printf '%s\n' "$TEMP/overlay.py" >"$TEMP/config/update-wrapper.path"
+chmod 600 "$TEMP/overlay.py" "$TEMP/config/update-wrapper.path"
+export MOCK_WRAPPER="$TEMP/overlay.py"
+export MOCK_RELEASE_URL=https://github.com/ZTD38F/ServerBridge/releases/tag/v0.5.14
+bash ./auto-update.sh
+[[ "$(tail -n 1 "$MOCK_UPDATED")" == "overlay" ]] || {
+  echo "Custom overlay wrapper was not selected" >&2; exit 1;
+}
+# An invalid hook must not silently fall back to upstream-only tools.
+rm "$TEMP/config/update-wrapper.path"
+ln -s "$TEMP/overlay.py" "$TEMP/config/update-wrapper.path"
+if bash ./auto-update.sh >/dev/null 2>&1; then
+  echo "Unsafe symlink wrapper was silently accepted" >&2; exit 1
+fi
+rm "$TEMP/config/update-wrapper.path"
+export MOCK_WRAPPER=""
+
+# A stale installed timer must trigger automatic reconciliation even with
+# identical backend and release version.
+cp packaging/serverbridge-update.timer "$TEMP/release/packaging/serverbridge-update.timer"
+printf 'OnCalendar=daily\n' > "$TEMP/unit/serverbridge-update.timer"
+printf 'v0.0.15\n' > "$TEMP/release/TUNNEL_CLIENT_VERSION"
+export MOCK_RELEASE_URL=https://github.com/ZTD38F/ServerBridge/releases/tag/v0.5.13
+bash ./auto-update.sh
+[[ "$(tail -n 1 "$MOCK_UPDATED")" == "updated" ]] || {
+  echo "Stale installed timer was not repaired" >&2; exit 1;
+}
+cp "$TEMP/release/packaging/serverbridge-update.timer" "$TEMP/unit/serverbridge-update.timer"
 
 grep -Fq 'OnUnitInactiveSec=30s' packaging/serverbridge-update.timer
 grep -Fq 'AccuracySec=1s' packaging/serverbridge-update.timer

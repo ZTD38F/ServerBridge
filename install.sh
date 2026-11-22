@@ -837,6 +837,7 @@ case "\${1:-check}" in
     else exit 1; fi
     ;;
   update|update-now)
+    if [[ -x "$BIN_DIR/auto-update" ]]; then exec "$BIN_DIR/auto-update"; fi
     exec "\$ROOT/current/.venv/bin/python" -m serverbridge.update_engine
     ;;
   stop)

@@ -294,6 +294,14 @@ def update_transport(candidate):
         subprocess.run(["systemctl","start","serverbridge.service"],check=False)
         raise
 
+def reconcile_update_assets(candidate: Path) -> None:
+    # A full release is committed before changing updater assets. The timer
+    # and launcher are reconciled independently with atomic rollback.
+    from .update_components import reconcile
+    result = reconcile(candidate)
+    log("update components " + str(result.get("status", "UNKNOWN")))
+
+
 def main():
     import fcntl
     LOCK.parent.mkdir(parents=True,exist_ok=True)
@@ -305,6 +313,7 @@ def main():
     target,candidate,tag=stage_latest()
     if current==target:
         update_supervisor(candidate);update_transport(candidate)
+        reconcile_update_assets(candidate)
         log("ok already current "+target);return
     pg,pp=route();ppid=int(BACKEND_PID.read_text().strip()) if BACKEND_PID.exists() else 0;cp=18772 if pp==18771 else 18771
     self_hosted=is_ancestor(ppid)
@@ -358,6 +367,7 @@ def main():
     if self_hosted:defer_stop_after_drain(ppid,pg)
     else:stop(ppid)
     update_supervisor(candidate);update_transport(candidate)
+    reconcile_update_assets(candidate)
     log("ok seamless runtime activation "+target)
 
 if __name__=="__main__":main()
