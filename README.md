@@ -14,11 +14,14 @@ You need:
 curl -fsSL https://github.com/ZTD38F/ServerBridge/releases/latest/download/bootstrap.sh | sudo bash
 ```
 
-The installer asks only for:
+The interactive installer asks for tunnel credentials and an access level. It offers Full Access (default answer Y) or read-only (N). The chosen mode is persisted and checked against the installed Python runtime before success is reported.
+
+The installer asks for:
 
 ```text
 Tunnel ID: tunnel_...
 Runtime API key: ********
+Enable FULL administrative access for this VPS? [Y/n]:
 ```
 
 When it says **ServerBridge is ready**, open:
@@ -79,14 +82,36 @@ When execution is enabled, ServerBridge also exposes typed mutation tools: `writ
 
 The public MCP core remains read-only/diagnostic by default. Filesystem reading is intentionally broad by default. ServerBridge protects its own tunnel/control-plane credential files unless you change `SERVERBRIDGE_PROTECTED_PATHS`.
 
-### Optional command execution
+### Full administrative access for a private VPS
 
-For a private server that you explicitly want ChatGPT to administer, enable execution during install/update:
+The normal interactive stable-release installation offers **Full Access** (Y is
+the default) and upgrades an existing read-only installation when selected.
+It enables exec, write, process and service-control tools together and verifies
+the installed runtime flags before claiming success.
+
+For explicit Full Access in unattended installations:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ZTD38F/ServerBridge/main/bootstrap.sh | \
-  sudo env SERVERBRIDGE_CHANNEL=edge SERVERBRIDGE_ENABLE_EXEC=1 bash
+curl -fsSL https://github.com/ZTD38F/ServerBridge/releases/latest/download/bootstrap.sh | sudo bash -s -- --full-access
 ```
+
+For diagnostic-only mode:
+
+```bash
+curl -fsSL https://github.com/ZTD38F/ServerBridge/releases/latest/download/bootstrap.sh | sudo bash -s -- --read-only
+```
+
+Without a terminal and without either flag, installation preserves the previous
+capabilities (or defaults to read-only on a fresh installation). The legacy
+SERVERBRIDGE_ENABLE_EXEC=1 environment setting remains supported.
+--full-access ensures all four capability flags are 1, regardless of a
+previous read-only configuration, and persists the choice across updates.
+
+**Security boundary:** Full Access can run arbitrary root commands through an
+authenticated private tunnel. This must only be enabled on a tunnel you
+exclusively control. The protected-path restriction on file tools does not
+sandbox arbitrary root shell commands. It does not bypass OpenAI authorization,
+platform policy, repository protections or credential handling.
 
 Then rescan the tunnel tools in ChatGPT once. `run_command` accepts an argv array, has a bounded timeout, captures bounded stdout/stderr, kills the process group on timeout, and is disabled unless `SERVERBRIDGE_ENABLE_EXEC=1` is explicitly persisted.
 
