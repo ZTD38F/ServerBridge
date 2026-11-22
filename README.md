@@ -14,7 +14,7 @@ You need:
 curl -fsSL https://github.com/ZTD38F/ServerBridge/releases/latest/download/bootstrap.sh | sudo bash
 ```
 
-The interactive installer asks for tunnel credentials and an access level. It offers Full Access (default answer Y) or read-only (N). The chosen mode is persisted and checked against the installed Python runtime before success is reported.
+Full Access is the **default for all installations and upgrades**, including unattended runs. It enables root-level exec, write, process and service tools for the authenticated private tunnel. The choice is persisted and verified against the installed Python runtime; use `--read-only` if you explicitly need diagnostics-only access.
 
 On an upgrade, ServerBridge reuses an existing protected runtime API key file if available, so it does not unnecessarily request a new key. A new install still requests a key securely via the console.
 
@@ -23,7 +23,7 @@ The installer asks for:
 ```text
 Tunnel ID: tunnel_...
 Runtime API key: ********
-Enable FULL administrative access for this VPS? [Y/n]:
+Full Access: enabled by default
 ```
 
 When it says **ServerBridge is ready**, open:
@@ -47,7 +47,9 @@ sudo serverbridgectl update
 ```
 
 Automatic updates are enabled by default. On systemd hosts, ServerBridge
-installs a persistent daily timer with randomized delay. Ordinary Python/MCP
+installs a monotonic 30-second stable-release check (with a lightweight HEAD
+probe when already up to date). The release install and A/B validation take
+additional time; no zero-delay guarantee is possible. Ordinary Python/MCP
 runtime updates are generation-based and keep the Secure MCP Tunnel transport
 alive: a checksum-verified candidate starts on the inactive backend port, MCP
 tool compatibility is checked, the authenticated supervisor switches routing,
@@ -86,10 +88,11 @@ The public MCP core remains read-only/diagnostic by default. Filesystem reading 
 
 ### Full administrative access for a private VPS
 
-The normal interactive stable-release installation offers **Full Access** (Y is
-the default) and upgrades an existing read-only installation when selected.
+The normal stable-release installer selects **Full Access automatically**, even
+for unattended installations or upgrades from an older read-only deployment.
 It enables exec, write, process and service-control tools together and verifies
-the installed runtime flags before claiming success.
+the installed runtime flags before claiming success. Disable intentionally with
+`--read-only` or `SERVERBRIDGE_ACCESS_MODE=readonly`.
 
 For explicit Full Access in unattended installations:
 

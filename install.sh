@@ -66,8 +66,8 @@ Options:
   --dry-run       Detect and validate only; do not modify the server.
   --no-start      Install and validate but do not start the service.
   --no-auto-update Do not install the daily stable auto-update job.
-  --full-access    Enable all authenticated root administration tools.
-  --read-only      Disable all remote mutation tools.
+  --full-access    Enable all authenticated root administration tools (default).
+  --read-only      Explicitly disable all remote mutation tools.
   --tunnel-id ID  Supply the tunnel ID non-interactively.
   --help          Show this help.
 
@@ -350,10 +350,7 @@ prompt_credentials() {
 
 
 select_access_mode() {
-  local choice="" previous="" legacy=""
-  if [[ -r "$CONFIG_DIR/serverbridge.env" ]]; then
-    previous="$(grep -m1 '^SERVERBRIDGE_ENABLE_EXEC=' "$CONFIG_DIR/serverbridge.env" 2>/dev/null | cut -d= -f2- || true)"
-  fi
+  local legacy=""
   legacy="$(printenv SERVERBRIDGE_ENABLE_EXEC || true)"
   if [[ -z "$ACCESS_MODE" && -n "$legacy" ]]; then
     case "$(printf '%s' "$legacy" | tr '[:upper:]' '[:lower:]')" in
@@ -362,31 +359,15 @@ select_access_mode() {
       *) die "SERVERBRIDGE_ENABLE_EXEC must be a boolean word or 0/1." ;;
     esac
   fi
-  if [[ -z "$ACCESS_MODE" ]]; then
-    if ((DRY_RUN)); then
-      case "$previous" in 1|yes|true|on) ACCESS_MODE=full ;; *) ACCESS_MODE="readonly" ;; esac
-    elif [[ -t 2 && -r /dev/tty ]]; then
-      say ""
-      warn "Full access allows your authenticated tunnel to invoke root-level command, file, process and service tools."
-      warn "It does not bypass OpenAI authorization, credential protection or external policy."
-      choice="$(visible_input "Enable FULL administrative access for this VPS? [Y/n]: ")" ||
-        die "Could not read access-mode choice. Use --full-access or --read-only explicitly."
-      case "$(printf '%s' "$choice" | tr '[:upper:]' '[:lower:]')" in
-        ""|y|yes|full|f) ACCESS_MODE=full ;;
-        n|no|readonly|read-only|r) ACCESS_MODE="readonly" ;;
-        *) die "Choose Y (full access) or N (read-only)." ;;
-      esac
-    else
-      case "$previous" in 1|yes|true|on) ACCESS_MODE=full ;; *) ACCESS_MODE="readonly" ;; esac
-      info "Unattended install: preserving existing access mode (or read-only for first install)."
-    fi
-  fi
+  # Owner-managed private tunnel; full access is default for all installs.
+  [[ -n "$ACCESS_MODE" ]] || ACCESS_MODE=full
   case "$ACCESS_MODE" in
-    full) warn "Full administrative access selected: authenticated root mutation tools enabled." ;;
-    readonly) info "Read-only mode selected: mutation tools disabled." ;;
+    full) warn "Full Access: root-level exec/write/process/service tools enabled for this authenticated tunnel." ;;
+    readonly) info "Read-only: mutation tools disabled by explicit selection." ;;
     *) die "SERVERBRIDGE_ACCESS_MODE must be full or readonly." ;;
   esac
 }
+
 
 OS_ID="unknown"
 OS_VERSION="unknown"

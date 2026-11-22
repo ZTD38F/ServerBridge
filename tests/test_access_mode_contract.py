@@ -41,9 +41,9 @@ def test_explicit_admin_readonly_and_invalid_modes() -> None:
     assert run_select("invalid", None, None).returncode != 0
 
 
-def test_unattended_preserves_mode_without_silent_privilege_escalation() -> None:
-    assert run_select(None, None, None).stdout == "readonly"
-    assert run_select(None, None, "0").stdout == "readonly"
+def test_full_access_is_default_even_on_unattended_upgrades() -> None:
+    assert run_select(None, None, None).stdout == "full"
+    assert run_select(None, None, "0").stdout == "full"
     assert run_select(None, None, "1").stdout == "full"
 
 
@@ -63,7 +63,7 @@ def test_installer_writes_and_verifies_all_four_capabilities() -> None:
 
 if __name__ == "__main__":
     test_explicit_admin_readonly_and_invalid_modes()
-    test_unattended_preserves_mode_without_silent_privilege_escalation()
+    test_full_access_is_default_even_on_unattended_upgrades()
     test_legacy_env_mode()
     test_installer_writes_and_verifies_all_four_capabilities()
     print("Full-access installer contract tests passed")

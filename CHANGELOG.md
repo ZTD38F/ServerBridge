@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.13 — 2026-11-22
+
+- Enable Full Access as the default on owner-managed private tunnel installs and reinstalls; explicit read-only overrides remain available.
+- Replace the delayed daily update timer with a 30-second monotonic check; use a lightweight public release redirect probe on steady state to avoid GitHub API rate limits.
+- Keep checksummed stable release activation, A/B health checks, lock, preserved credentials and rollback protections.
+
 ## 0.5.12 — 2026-11-22
 
 - Correct modern-install upgrade credential reuse: read the existing runtime API key only from the managed, non-symlink protected file without printing it.
