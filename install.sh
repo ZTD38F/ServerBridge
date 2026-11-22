@@ -16,6 +16,7 @@ PROFILE_NAME="serverbridge"
 DRY_RUN=0
 NO_START=0
 AUTO_UPDATE="${SERVERBRIDGE_AUTO_UPDATE:-1}"
+ACCESS_MODE="${SERVERBRIDGE_ACCESS_MODE:-}"
 TUNNEL_ID="${SERVERBRIDGE_TUNNEL_ID:-${CONTROL_PLANE_TUNNEL_ID:-}}"
 RUNTIME_KEY="${CONTROL_PLANE_API_KEY:-}"
 SOURCE_SHA="${SERVERBRIDGE_SOURCE_SHA:-}"
@@ -65,6 +66,8 @@ Options:
   --dry-run       Detect and validate only; do not modify the server.
   --no-start      Install and validate but do not start the service.
   --no-auto-update Do not install the daily stable auto-update job.
+  --full-access    Enable all authenticated root administration tools.
+  --read-only      Disable all remote mutation tools.
   --tunnel-id ID  Supply the tunnel ID non-interactively.
   --help          Show this help.
 
@@ -79,6 +82,8 @@ while (($#)); do
     --dry-run) DRY_RUN=1 ;;
     --no-start) NO_START=1 ;;
     --no-auto-update) AUTO_UPDATE=0 ;;
+    --full-access) ACCESS_MODE=full ;;
+    --read-only) ACCESS_MODE="readonly" ;;
     --tunnel-id)
       shift
       (($#)) || die "--tunnel-id requires a value"
@@ -333,6 +338,46 @@ prompt_credentials() {
     die "Runtime API key contains unsupported characters."
 
   ok "Runtime key received."
+}
+
+
+select_access_mode() {
+  local choice="" previous="" legacy=""
+  if [[ -r "$CONFIG_DIR/serverbridge.env" ]]; then
+    previous="$(grep -m1 '^SERVERBRIDGE_ENABLE_EXEC=' "$CONFIG_DIR/serverbridge.env" 2>/dev/null | cut -d= -f2- || true)"
+  fi
+  legacy="$(printenv SERVERBRIDGE_ENABLE_EXEC || true)"
+  if [[ -z "$ACCESS_MODE" && -n "$legacy" ]]; then
+    case "$(printf '%s' "$legacy" | tr '[:upper:]' '[:lower:]')" in
+      1|yes|true|on) ACCESS_MODE=full ;;
+      0|no|false|off) ACCESS_MODE="readonly" ;;
+      *) die "SERVERBRIDGE_ENABLE_EXEC must be a boolean word or 0/1." ;;
+    esac
+  fi
+  if [[ -z "$ACCESS_MODE" ]]; then
+    if ((DRY_RUN)); then
+      case "$previous" in 1|yes|true|on) ACCESS_MODE=full ;; *) ACCESS_MODE="readonly" ;; esac
+    elif [[ -t 2 && -r /dev/tty ]]; then
+      say ""
+      warn "Full access allows your authenticated tunnel to invoke root-level command, file, process and service tools."
+      warn "It does not bypass OpenAI authorization, credential protection or external policy."
+      choice="$(visible_input "Enable FULL administrative access for this VPS? [Y/n]: ")" ||
+        die "Could not read access-mode choice. Use --full-access or --read-only explicitly."
+      case "$(printf '%s' "$choice" | tr '[:upper:]' '[:lower:]')" in
+        ""|y|yes|full|f) ACCESS_MODE=full ;;
+        n|no|readonly|read-only|r) ACCESS_MODE="readonly" ;;
+        *) die "Choose Y (full access) or N (read-only)." ;;
+      esac
+    else
+      case "$previous" in 1|yes|true|on) ACCESS_MODE=full ;; *) ACCESS_MODE="readonly" ;; esac
+      info "Unattended install: preserving existing access mode (or read-only for first install)."
+    fi
+  fi
+  case "$ACCESS_MODE" in
+    full) warn "Full administrative access selected: authenticated root mutation tools enabled." ;;
+    readonly) info "Read-only mode selected: mutation tools disabled." ;;
+    *) die "SERVERBRIDGE_ACCESS_MODE must be full or readonly." ;;
+  esac
 }
 
 OS_ID="unknown"
@@ -650,14 +695,12 @@ write_config() {
   touch "$CONFIG_DIR/.serverbridge-managed"
   chmod 600 "$CONFIG_DIR/.serverbridge-managed"
 
-  local exec_enabled="${SERVERBRIDGE_ENABLE_EXEC:-}"
-  local exec_timeout="${SERVERBRIDGE_EXEC_MAX_TIMEOUT:-}"
+  local exec_enabled="" exec_timeout=""
+  case "$ACCESS_MODE" in full) exec_enabled=1 ;; readonly) exec_enabled=0 ;; *) die "Access mode unset." ;; esac
+  exec_timeout="$(printenv SERVERBRIDGE_EXEC_MAX_TIMEOUT || true)"
   if [[ -r "$CONFIG_DIR/serverbridge.env" ]]; then
-    [[ -n "$exec_enabled" ]] || exec_enabled="$(grep -m1 '^SERVERBRIDGE_ENABLE_EXEC=' "$CONFIG_DIR/serverbridge.env" 2>/dev/null | cut -d= -f2- || true)"
     [[ -n "$exec_timeout" ]] || exec_timeout="$(grep -m1 '^SERVERBRIDGE_EXEC_MAX_TIMEOUT=' "$CONFIG_DIR/serverbridge.env" 2>/dev/null | cut -d= -f2- || true)"
   fi
-  [[ -n "$exec_enabled" ]] || exec_enabled=0
-  [[ "$exec_enabled" =~ ^(0|1|true|false|yes|no|on|off)$ ]] || die "SERVERBRIDGE_ENABLE_EXEC must be 0/1 or a boolean word."
   [[ -n "$exec_timeout" ]] || exec_timeout=900
   if [[ ! "$exec_timeout" =~ ^[0-9]+$ ]] || ((exec_timeout < 1 || exec_timeout > 3600)); then
     die "SERVERBRIDGE_EXEC_MAX_TIMEOUT must be 1-3600 seconds."
@@ -682,7 +725,11 @@ EOF
 SERVERBRIDGE_ALLOWED_ROOTS=/
 SERVERBRIDGE_MAX_CAPTURE_BYTES=65536
 SERVERBRIDGE_MAX_HASH_BYTES=67108864
+SERVERBRIDGE_ACCESS_MODE=$ACCESS_MODE
 SERVERBRIDGE_ENABLE_EXEC=$exec_enabled
+SERVERBRIDGE_ENABLE_WRITE=$exec_enabled
+SERVERBRIDGE_ENABLE_PROCESS=$exec_enabled
+SERVERBRIDGE_ENABLE_SERVICE_CONTROL=$exec_enabled
 SERVERBRIDGE_EXEC_MAX_TIMEOUT=$exec_timeout
 SERVERBRIDGE_PROTECTED_PATHS=$CONFIG_DIR/runtime.env:$CONFIG_DIR/network.env:$CONFIG_DIR/network.sh:$CONFIG_DIR/control_plane_api_key:$CONFIG_DIR/router_token:$CONFIG_DIR/backend_token:$PROFILE_DIR
 EOF
@@ -690,6 +737,22 @@ EOF
   mv -f "$CONFIG_DIR/serverbridge.env.new" "$CONFIG_DIR/serverbridge.env"
 
   write_network_env
+}
+
+
+verify_access_flags() {
+  local effective expected="0 0 0 0"
+  [[ "$ACCESS_MODE" == full ]] && expected="1 1 1 1"
+  effective="$(
+    set -a
+    # shellcheck disable=SC1091
+    . "$CONFIG_DIR/serverbridge.env"
+    set +a
+    "$NEW_RELEASE/.venv/bin/python" -c 'from serverbridge.core import EXEC_ENABLED, WRITE_ENABLED, PROCESS_ENABLED, SERVICE_CONTROL_ENABLED; print(*[int(x) for x in (EXEC_ENABLED, WRITE_ENABLED, PROCESS_ENABLED, SERVICE_CONTROL_ENABLED)])'
+  )" || die "Runtime capability verification failed."
+  [[ "$effective" == "$expected" ]] ||
+    die "Access mode mismatch: expected $expected, actual $effective."
+  ok "Verified $ACCESS_MODE capabilities (exec/write/process/service_control): $effective"
 }
 
 install_launcher() {
@@ -952,6 +1015,7 @@ load_existing_credentials
 
 step 1 "Tunnel"
 prompt_credentials
+select_access_mode
 
 step 2 "Check server"
 detect_system
@@ -1070,6 +1134,7 @@ if ((DRY_RUN)); then
   info "Would create protected config, tunnel profile and $INIT autostart."
 else
   write_config
+  verify_access_flags
   ln -sfn "$NEW_RELEASE" "$INSTALL_ROOT/current"
   install -d -m 700 "$STATE_DIR"
   "$PYTHON_BIN" - "$STATE_DIR/route.json" "$(basename "$NEW_RELEASE")" <<'PY'
@@ -1116,6 +1181,7 @@ say ""
 say "Next:"
 say "  ${BLUE}https://chatgpt.com/#settings/Connectors${RESET}"
 say "  Choose your tunnel → Scan tools"
+say "  Access mode: $ACCESS_MODE (verified)"
 say ""
 say "Check anytime:"
 say "  ${BOLD}sudo serverbridgectl check${RESET}"
