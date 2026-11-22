@@ -59,3 +59,11 @@ def test_installer_writes_and_verifies_all_four_capabilities() -> None:
     assert "--full-access)" in INSTALLER
     assert "--read-only)" in INSTALLER
     assert "SERVERBRIDGE_PROTECTED_PATHS=" in INSTALLER
+
+
+if __name__ == "__main__":
+    test_explicit_admin_readonly_and_invalid_modes()
+    test_unattended_preserves_mode_without_silent_privilege_escalation()
+    test_legacy_env_mode()
+    test_installer_writes_and_verifies_all_four_capabilities()
+    print("Full-access installer contract tests passed")
