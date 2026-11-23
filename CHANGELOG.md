@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.17 — 2026-11-22
 
 - Forward partial HTTP and SSE response chunks immediately through the authenticated supervisor rather than buffering until 64 KiB or EOF, preserving real-time streams.
 - Add actual one-line piped-bootstrap PTY regressions for Enter-to-reuse, replacement and fresh install with synthetic credentials, plus streaming E2E coverage.

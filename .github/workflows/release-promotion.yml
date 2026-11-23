@@ -1,0 +1,100 @@
+name: Promote verified automated patch release
+
+# Only a successfully tested bot-authored metadata PR can be merged.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches:
+      - 'automated-release/**'
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: serverbridge-verified-autopromotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      startsWith(github.event.workflow_run.head_branch, 'automated-release/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted main release policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+
+      - name: Check exact candidate SHA, provenance, fleet gate and CI
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD: ${{ github.event.workflow_run.head_sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ISSUE_STATE="$(gh issue view 29 --json state --jq '.state')"
+          if [[ "$ISSUE_STATE" != "CLOSED" ]]; then
+            echo "PH24 tunnel identity not resolved; leave candidate draft."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ "$BRANCH" =~ ^automated-release/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]
+          VERSION="v${BASH_REMATCH[1]}"
+          CURRENT_MAIN="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')"
+          PARENT="$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD" --jq '.parents[0].sha')"
+          [[ "$CURRENT_MAIN" == "$PARENT" ]] || {
+            echo "::error::Main advanced; refusing outdated release."
+            exit 1
+          }
+          LAST="$(gh release view --json tagName --jq '.tagName')"
+          EXPECTED="$(python -c 'import sys
+          tag=sys.argv[1]
+          assert tag.startswith("v")
+          a,b,c=map(int,tag[1:].split("."))
+          print(f"v{a}.{b}.{c+1}")' "$LAST")"
+          [[ "$VERSION" == "$EXPECTED" ]] || exit 1
+          PRS="$(gh pr list --head "$BRANCH" --base main --state open --json number)"
+          NUMBER="$(python -c 'import json,sys
+          a=json.load(sys.stdin)
+          assert len(a)==1, "Expected one release candidate"
+          print(a[0]["number"])' <<< "$PRS")"
+          DETAILS="$(gh pr view "$NUMBER" --json headRefOid,baseRefName,isDraft,author,files)"
+          python -c 'import json,sys
+          p=json.load(sys.stdin)
+          assert p["headRefOid"]==sys.argv[1], "Candidate changed after CI"
+          assert p["baseRefName"]=="main" and p["isDraft"], "Not the draft PR"
+          assert p["author"]["login"]=="github-actions[bot]", "Untrusted PR author"
+          allowed={"CHANGELOG.md","plugin.json","pyproject.toml","serverbridge/__init__.py"}
+          assert {f["path"] for f in p["files"]}==allowed,"Unreviewed PR files"' "$HEAD" <<< "$DETAILS"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Promote proven bot-authored patch candidate
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD: ${{ github.event.workflow_run.head_sha }}
+          NUMBER: ${{ steps.gate.outputs.number }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # GitHub branch protections apply; never --admin or --force.
+          gh pr ready "$NUMBER"
+          gh pr merge "$NUMBER" --squash --delete-branch --match-head-commit "$HEAD"
+          MERGED="$(gh pr view "$NUMBER" --json mergedAt,mergeCommit)"
+          SHA="$(python -c 'import json,sys
+          x=json.load(sys.stdin)
+          assert x["mergedAt"] and x["mergeCommit"],"Merge not verified"
+          print(x["mergeCommit"]["oid"])' <<< "$MERGED")"
+          ACTUAL="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')"
+          [[ "$SHA" == "$ACTUAL" ]] || exit 1
+          # Bot merges do not trigger regular push CI. Dispatch CI explicitly.
+          gh workflow run ci.yml --ref main

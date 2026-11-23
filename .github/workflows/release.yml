@@ -1,10 +1,12 @@
 name: Release
 
+# Release only after CI for the exact main commit. A version-only push no
+# longer races against failing CI or publishes untested code.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
-    paths:
-      - pyproject.toml
   workflow_dispatch:
 
 permissions:
@@ -12,17 +14,55 @@ permissions:
   id-token: write
   attestations: write
 
+concurrency:
+  group: serverbridge-stable-release
+  cancel-in-progress: false
+
 jobs:
   release:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       (github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'workflow_dispatch') &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.workflow_run.head_sha }}
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
+
+      - name: Verify main commit identity and required successful CI
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -Eeuo pipefail
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          LIVE_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')"
+          if [[ "$SOURCE_SHA" != "$LIVE_SHA" ]]; then
+            echo "::error::Source is not the current main head; refusing stale release."
+            exit 1
+          fi
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            # Manual dispatch must pass the same source-CI verification.
+            RUNS="$(gh run list --workflow ci.yml --commit "$SOURCE_SHA" \
+              --limit 25 --json status,conclusion,headSha,event)"
+            if ! python -c 'import json,sys
+            sha=sys.argv[1];runs=json.load(sys.stdin)
+            assert any(r["headSha"]==sha and r["status"]=="completed" and r["conclusion"]=="success" and r["event"] in ("push","workflow_dispatch") for r in runs), "Missing successful main CI for this exact source commit"' "$SOURCE_SHA" <<< "$RUNS"; then
+              echo "::error::No successful CI push run for the source commit."
+              exit 1
+            fi
+          fi
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Resolve version
         id: version
@@ -34,6 +74,14 @@ jobs:
           PY
           )"
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          python - <<'PY'
+          import json, tomllib
+          from pathlib import Path
+          import serverbridge
+          expected = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          assert serverbridge.__version__ == expected, "Runtime version mismatch"
+          assert json.loads(Path("plugin.json").read_text())["version"] == expected, "Manifest version mismatch"
+          PY
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -50,8 +98,26 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Audit and create SBOM
+      - name: Honor unresolved PH24 fleet identity blocker
+        id: fleet
         if: steps.release_check.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          ISSUE_STATE="$(gh issue view 29 --json state --jq '.state')"
+          if [[ "$ISSUE_STATE" == "OPEN" ]]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Stable release held by verified PH24 mixed-tunnel issue #29; no server update is triggered."
+          elif [[ "$ISSUE_STATE" == "CLOSED" ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Cannot verify fleet readiness issue #29."
+            exit 1
+          fi
+
+      - name: Audit and create SBOM
+        if: steps.release_check.outputs.exists != 'true' && steps.fleet.outputs.ready == 'true'
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
@@ -63,20 +129,20 @@ jobs:
             --output "ServerBridge-$TAG.sbom.cdx.json"
 
       - name: Build release artifacts
-        if: steps.release_check.outputs.exists != 'true'
+        if: steps.release_check.outputs.exists != 'true' && steps.fleet.outputs.ready == 'true'
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           git archive \
             --format=tar.gz \
             --prefix="ServerBridge-$TAG/" \
-            "$GITHUB_SHA" \
+            "$(git rev-parse HEAD)" \
             -o "ServerBridge-$TAG.tar.gz"
 
           git archive \
             --format=zip \
             --prefix="ServerBridge-$TAG/" \
-            "$GITHUB_SHA" \
+            "$(git rev-parse HEAD)" \
             -o "ServerBridge-$TAG.zip"
 
           sha256sum \
@@ -88,7 +154,7 @@ jobs:
             > SHA256SUMS.txt
 
       - name: Attest release artifacts
-        if: steps.release_check.outputs.exists != 'true'
+        if: steps.release_check.outputs.exists != 'true' && steps.fleet.outputs.ready == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
@@ -100,7 +166,7 @@ jobs:
             SHA256SUMS.txt
 
       - name: Create GitHub release
-        if: steps.release_check.outputs.exists != 'true'
+        if: steps.release_check.outputs.exists != 'true' && steps.fleet.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -112,12 +178,12 @@ jobs:
             bootstrap.sh \
             update.sh \
             SHA256SUMS.txt \
-            --target "$GITHUB_SHA" \
+            --target "${{ steps.source.outputs.sha }}" \
             --title "ServerBridge $TAG" \
             --generate-notes
 
       - name: Verify published bootstrap asset
-        if: steps.release_check.outputs.exists != 'true'
+        if: steps.release_check.outputs.exists != 'true' && steps.fleet.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
