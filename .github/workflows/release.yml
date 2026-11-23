@@ -23,7 +23,8 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
+       (github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'workflow_dispatch') &&
        github.event.workflow_run.head_branch == 'main' &&
        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
@@ -53,10 +54,10 @@ jobs:
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             # Manual dispatch must pass the same source-CI verification.
             RUNS="$(gh run list --workflow ci.yml --commit "$SOURCE_SHA" \
-              --event push --limit 25 --json status,conclusion,headSha)"
+              --limit 25 --json status,conclusion,headSha,event)"
             if ! python -c 'import json,sys
             sha=sys.argv[1];runs=json.load(sys.stdin)
-            assert any(r["headSha"]==sha and r["status"]=="completed" and r["conclusion"]=="success" for r in runs), "Missing successful main CI for this exact source commit"' "$SOURCE_SHA" <<< "$RUNS"; then
+            assert any(r["headSha"]==sha and r["status"]=="completed" and r["conclusion"]=="success" and r["event"] in ("push","workflow_dispatch") for r in runs), "Missing successful main CI for this exact source commit"' "$SOURCE_SHA" <<< "$RUNS"; then
               echo "::error::No successful CI push run for the source commit."
               exit 1
             fi

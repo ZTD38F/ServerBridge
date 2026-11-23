@@ -82,7 +82,10 @@ curl -fsSL https://github.com/ZTD38F/ServerBridge/releases/latest/download/boots
 The normal install/update channel is **stable**: it resolves the latest published GitHub Release, not unreleased commits from `main`.
 
 Successful CI for a new `main` commit now proposes the next patch version
-through a deduplicated draft PR; see [verified release train](docs/AUTOMATED_DELIVERY.md).
+through a deduplicated draft PR; after independent PH24 fleet readiness
+confirmation, newly bot-authored candidates can be promoted automatically
+only after their own full CI (never by bypassing branch protections). See the
+[verified release train](docs/AUTOMATED_DELIVERY.md).
 Stable publication runs only after CI for the **exact** `main` commit and is
 held while the PH24 mixed-tunnel incident (#29) remains unresolved. Source
 commits alone never install onto a VPS. Each host still validates the published

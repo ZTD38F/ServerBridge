@@ -17,8 +17,13 @@ is deployed. Green CI is not a fleet receipt.
    another release branch or force-pushes. It creates a draft version-only
    PR and explicitly dispatches the full CI matrix, because GITHUB_TOKEN
    write events do not reliably trigger ordinary workflows.
-5. Promote the draft only after proving target fleet identity, rollback,
-   source provenance and the complete candidate CI matrix.
+5. When PH24 issue #29 is CLOSED after independent host/rollback E2E,
+   the guarded promotion workflow may verify the bot-owned metadata-only PR,
+   its exact successful CI SHA and unchanged main parent, then merge it
+   without bypassing branch protections. It explicitly dispatches CI for
+   the merged main commit; stable publishing still requires that exact CI
+   and the unresolved-tunnel issue gate. Owner-authored PRs, including
+   existing PR #32, are not auto-merged by the bot.
 
 ## Green CI to stable release
 
@@ -61,7 +66,8 @@ Use a uniquely pinned, authorized per-host provider console instead.
   current release, updater/timer, tunnel PID, live MCP and streaming.
 - Persist canonical Work Ledger receipts before saying VERIFIED or DONE.
 
-Current limitation: The automated path prepares patch release candidates,
-but automated production promotion remains gated until the PH24 identity
-collision is resolved and the whole delivery chain passes E2E. Do not
-claim fully unattended production releases while this gate remains open.
+Current limitation: The automated path prepares patch release candidates
+and has a gated promotion flow for newly bot-authored candidates, but its
+production effect has NOT been verified. It remains blocked while the PH24
+identity collision is unresolved. Do not call the fleet DONE until an
+independent full rollout including legacy adoption and rollback passes E2E.
